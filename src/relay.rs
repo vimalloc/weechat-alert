@@ -7,6 +7,7 @@ mod weechat {
     use std::net::TcpStream;
     use std::thread;
     use std::mem;
+    use std::str;
 
     const HEADER_LENGTH: usize = 5;
 
@@ -18,7 +19,7 @@ mod weechat {
     }
 
     struct MessageHeader {
-        length: i32,
+        length: usize,
         compression: bool,
     }
 
@@ -49,6 +50,29 @@ mod weechat {
             let _ = self.stream.read_exact(&mut buffer);
             let header = MessageHeader::new(&buffer);
             println!("Length is {} and compression is {}", header.length, header.compression);
+
+            // Now that we have the header, get the rest of the message. We
+            // cannot dynamically allocate the buffer size here it looks like,
+            // and we cannot pass in a vector, so we will do old school reads
+            // into a buffer, the copy the contents of the buffer into a vector
+            // until everything has been read
+            let mut data = vec![0; header.length];
+            let _ = self.stream.read_exact(data.as_mut_slice());
+            /*
+            let total_read = 0;
+            let mut buffer = [0; 1024];
+            while total_read != header.length {
+                let read = self.stream.read(&mut buffer);
+                total_read += read;
+                data.
+            }
+            */
+
+            //println!("Received {}", str::from_utf8(&data).unwrap());
+            println!("data length is {}", data.len());
+            for byte in data {
+                println!("received: {}", byte);
+            }
         }
 
         fn init_relay(&mut self) {
@@ -74,7 +98,7 @@ mod weechat {
             self.ping();
             self.recv_msg();
 
-            thread::sleep(Duration::from_millis(5000));
+            //thread::sleep(Duration::from_millis(5000));
             self.close_relay();
         }
     }
@@ -83,15 +107,16 @@ mod weechat {
         pub fn new(data: &[u8]) -> MessageHeader {
             // Pull length out of bytes and cast it to an int.
             // Reverse the endianness of the bits to get this working
-            let length;
+            let mut int_length;
             let mut length_bytes: [u8; 4] = [0, 0, 0, 0];
             length_bytes[0] = data[3];
             length_bytes[1] = data[2];
             length_bytes[2] = data[1];
             length_bytes[3] = data[0];
             unsafe {
-                length = mem::transmute::<[u8; 4], i32>(length_bytes);
+                int_length = mem::transmute::<[u8; 4], u32>(length_bytes);
             }
+            let length = int_length as usize - HEADER_LENGTH;
 
 
             // Pull compression out of bytes, and verify it's 1 or 0
