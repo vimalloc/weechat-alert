@@ -58,26 +58,29 @@ mod weechat {
             // until everything has been read
             let mut data = vec![0; header.length];
             let _ = self.stream.read_exact(data.as_mut_slice());
-            /*
-            let total_read = 0;
-            let mut buffer = [0; 1024];
-            while total_read != header.length {
-                let read = self.stream.read(&mut buffer);
-                total_read += read;
-                data.
-            }
-            */
-
-            //println!("Received {}", str::from_utf8(&data).unwrap());
             println!("data length is {}", data.len());
             for byte in data {
                 println!("received: {}", byte);
             }
         }
 
+        fn parse_pong(&mut self) -> String {
+            // TODO will we always get a string back that is the command name?
+            //      or is that only for pong
+            // str_len (4 bytes)
+            // _pong
+            // str_len (4 bytes)
+            // message
+        }
+
         fn init_relay(&mut self) {
+            // If init failed, the protocol wont say anyting. Try doing a
+            // ping->pong right now, and if that disconnects the socket then
+            // the password failed
             let cmd_str = format!("init password={},compression=off", self.password);
             self.send_cmd(cmd_str);
+            self.ping();
+            self.recv_msg();
         }
 
         fn close_relay(&mut self) {
@@ -91,13 +94,7 @@ mod weechat {
         }
 
         pub fn run(&mut self) {
-            // If init failed, the protocol wont say anyting. Try doing a
-            // ping->pong right now, and if that disconnects the socket then
-            // the password failed
             self.init_relay();
-            self.ping();
-            self.recv_msg();
-
             //thread::sleep(Duration::from_millis(5000));
             self.close_relay();
         }
