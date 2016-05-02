@@ -23,6 +23,28 @@ mod weechat {
         compression: bool,
     }
 
+    /// Converts a 4 byte array slice into a 32 bit signed integer. The bytes
+    /// are assumed to be encoded in a big-endian format
+    fn bytes_to_int(byte_array: &[u8]) -> i32 {
+        if byte_array.len() != 4 {
+            panic!("byte array is not exactly 4 bytes, cannot cast to int");
+        }
+
+        // Re-arrange bytes from little to big-endian (so we can transmute them)
+        let mut bytes: [u8; 4] = [0, 0, 0, 0];
+        bytes[0] = byte_array[3];
+        bytes[1] = byte_array[2];
+        bytes[2] = byte_array[1];
+        bytes[3] = byte_array[0];
+
+        // Do the casting
+        let i: i32;
+        unsafe {
+            i = mem::transmute::<[u8; 4], i32>(bytes);
+        }
+        return i;
+    }
+
     impl Relay {
         pub fn new(host: String, port: i32, password: String) -> Relay {
             let addr = format!("{}:{}", host, port);
@@ -51,11 +73,7 @@ mod weechat {
             let header = MessageHeader::new(&buffer);
             println!("Length is {} and compression is {}", header.length, header.compression);
 
-            // Now that we have the header, get the rest of the message. We
-            // cannot dynamically allocate the buffer size here it looks like,
-            // and we cannot pass in a vector, so we will do old school reads
-            // into a buffer, the copy the contents of the buffer into a vector
-            // until everything has been read
+            // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
             let _ = self.stream.read_exact(data.as_mut_slice());
             println!("data length is {}", data.len());
@@ -71,6 +89,7 @@ mod weechat {
             // _pong
             // str_len (4 bytes)
             // message
+            return String::from("foobar");
         }
 
         fn init_relay(&mut self) {
@@ -102,19 +121,10 @@ mod weechat {
 
     impl MessageHeader {
         pub fn new(data: &[u8]) -> MessageHeader {
-            // Pull length out of bytes and cast it to an int.
-            // Reverse the endianness of the bits to get this working
-            let mut int_length;
-            let mut length_bytes: [u8; 4] = [0, 0, 0, 0];
-            length_bytes[0] = data[3];
-            length_bytes[1] = data[2];
-            length_bytes[2] = data[1];
-            length_bytes[3] = data[0];
-            unsafe {
-                int_length = mem::transmute::<[u8; 4], u32>(length_bytes);
-            }
-            let length = int_length as usize - HEADER_LENGTH;
-
+            // Headers has length of full message, we need to chop off the
+            // legth of the header as we have already read that from the socket
+            let total_msg_length = bytes_to_int(&data[0..4]);
+            let length = total_msg_length as usize - HEADER_LENGTH;
 
             // Pull compression out of bytes, and verify it's 1 or 0
             let compression;
