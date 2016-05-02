@@ -5,6 +5,7 @@ mod weechat {
     use std::io::prelude::*;
     use std::time::Duration;
     use std::net::TcpStream;
+    use std::str::from_utf8;
     use std::thread;
     use std::mem;
     use std::str;
@@ -76,10 +77,27 @@ mod weechat {
             // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
             let _ = self.stream.read_exact(data.as_mut_slice());
+            self.parse_cmd(data.as_slice());
+            /*
             println!("data length is {}", data.len());
             for byte in data {
                 println!("received: {}", byte);
             }
+            */
+        }
+
+        fn parse_cmd(&mut self, data: &[u8]) {
+            // First 4 bytes are the integer length of the command name
+            let command_name_length = bytes_to_int(&data[0..4]);
+            let start_pos = 4;
+            let end_pos = 4 + command_name_length as usize;
+            let command_name = from_utf8(&data[start_pos..end_pos]).unwrap();
+
+            // Subsequent bytes depend on what the command is
+            println!("command_name is {}", command_name);
+            // TODO
+            // switch on command name
+            // call parse method for given command
         }
 
         fn parse_pong(&mut self) -> String {
