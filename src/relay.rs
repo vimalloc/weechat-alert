@@ -27,9 +27,7 @@ mod weechat {
     /// Converts a 4 byte array slice into a 32 bit signed integer. The bytes
     /// are assumed to be encoded in a big-endian format
     fn bytes_to_int(byte_array: &[u8]) -> i32 {
-        if byte_array.len() != 4 {
-            panic!("byte array is not exactly 4 bytes, cannot cast to int");
-        }
+        assert!(byte_array.len() == 4, "Array isn't 4 bytes, cannot cast to int");
 
         // Re-arrange bytes from little to big-endian (so we can transmute them)
         let mut bytes: [u8; 4] = [0, 0, 0, 0];
@@ -44,6 +42,31 @@ mod weechat {
             i = mem::transmute::<[u8; 4], i32>(bytes);
         }
         return i;
+    }
+
+    /// Given a byte array which contains an encoded str, pull the string out
+    /// and return it. The protocol from strings are:
+    ///
+    /// bytes 0 - 3: "str"
+    /// bytes 3 - 7: signed integer, size of string
+    /// bytes 7 - ?: The actual string message
+    ///
+    /// Note: An empty string is valid, in this cass length will be 0. A NULL
+    ///       string is also valid, it has length of -1.
+    fn extract_string(data: &[u8]) -> &str {
+        assert!(data.len() >= 7, "Not enough bytes in array to extract string");
+        let obj_type = from_utf8(&data[0..3]).unwrap();
+        assert!(obj_type == "str");
+        let str_size = bytes_to_int(&data[3..7]);
+
+        if str_size == 0 {
+            return "";
+        } else if str_size == -1 {
+            return "";  // TODO how would we want to encode the idea of a null string?
+        } else {
+            let end_pos = 7 + str_size as usize;
+            return from_utf8(&data[7..end_pos]).unwrap();
+        }
     }
 
     impl Relay {
@@ -93,21 +116,24 @@ mod weechat {
             let end_pos = 4 + command_name_length as usize;
             let command_name = from_utf8(&data[start_pos..end_pos]).unwrap();
 
+            // The rest of the received data that needs to be sent to the handler
+            let cmd_data = &data[end_pos..];
+
             // Subsequent bytes depend on what the command is
-            println!("command_name is {}", command_name);
-            // TODO
-            // switch on command name
-            // call parse method for given command
+            match command_name {
+                "_pong" => { self.handle_pong(&cmd_data); }
+                _       => { panic!(format!("unsupported command: {}", command_name)); }
+            }
+
+            // TODO build some generic or wrapper struct where we can return
+            //      anything that we need to from this method (string, struct,
+            //      int, whatever)
         }
 
-        fn parse_pong(&mut self) -> String {
-            // TODO will we always get a string back that is the command name?
-            //      or is that only for pong
-            // str_len (4 bytes)
-            // _pong
-            // str_len (4 bytes)
-            // message
-            return String::from("foobar");
+        fn handle_pong(&mut self, data: &[u8]) {
+            // TODO actually return this (see note above in parse_cmd)
+            let result = extract_string(data);
+            println!("received pong: {}", result);
         }
 
         fn init_relay(&mut self) {
