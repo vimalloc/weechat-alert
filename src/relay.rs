@@ -44,11 +44,9 @@ mod weechat {
         bytes[3] = byte_array[0];
 
         // Do the casting
-        let i: i32;
         unsafe {
-            i = mem::transmute::<[u8; 4], i32>(bytes);
+            mem::transmute::<[u8; 4], i32>(bytes)
         }
-        return i;
     }
 
 
@@ -83,8 +81,7 @@ mod weechat {
             // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
             let _ = self.stream.read_exact(data.as_mut_slice());
-            let command = MessageData::new(data.as_slice());
-            return command;
+            MessageData::new(data.as_slice())
         }
 
         fn init_relay(&mut self) {
