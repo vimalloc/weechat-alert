@@ -134,15 +134,11 @@ mod weechat {
             let length = total_msg_length as usize - HEADER_LENGTH;
 
             // Pull compression out of bytes, and verify it's 1 or 0
-            let compression;
-            let compression_byte = data[4];
-            if compression_byte == 0 {
-                compression = false;
-            } else if compression_byte == 1 {
-                compression = true;
-            } else {
-                panic!("Compression byte is not 0 or 1");
-            }
+            let compression = match data[4] {
+                0 => false,
+                1 => true,
+                _ => panic!("Compression byte is neither 0 or 1"),
+            };
 
             // Create the struct
             MessageHeader {
@@ -192,20 +188,23 @@ mod weechat {
         /// Note: An empty string is valid, in this cass length will be 0. A NULL
         ///       string is also valid, it has length of -1.
         fn extract_string(data: &[u8]) -> String {
+            // Sanity checks
             assert!(data.len() >= 7, "Not enough bytes in array to extract string");
             let obj_type = from_utf8(&data[0..3]).unwrap();
             assert!(obj_type == "str");
-            let str_size = bytes_to_int(&data[3..7]);
 
-            if str_size == 0 {
-                return String::from("");
-            } else if str_size == -1 {
-                return String::from("");  // TODO how would we want to encode the idea of a null string?
-            } else {
-                let end_pos = 7 + str_size as usize;
-                let str_data = from_utf8(&data[7..end_pos]).unwrap();
-                return String::from(str_data);
-            }
+            // Get the start and end limits for this string
+            let str_size = bytes_to_int(&data[3..7]);
+            let start_pos = 7 as usize;
+            let end_pos = start_pos + str_size as usize;
+
+            // Pull out and return the string
+            let data_str = match str_size {
+                0  => "",  // Empty string
+                -1 => "",  // Null string TODO how to encode the idea of this?
+                _  => from_utf8(&data[start_pos..end_pos]).unwrap(),
+            };
+            String::from(data_str)
         }
     }
 }
