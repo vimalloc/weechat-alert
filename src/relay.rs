@@ -3,12 +3,9 @@
 
 mod weechat {
     use std::io::prelude::*;
-    use std::time::Duration;
     use std::net::TcpStream;
     use std::str::from_utf8;
-    use std::thread;
     use std::mem;
-    use std::str;
 
     const HEADER_LENGTH: usize = 5;
 
@@ -24,12 +21,22 @@ mod weechat {
         compression: bool,
     }
 
+    struct MessageData {
+        identifier: String,
+        data: DataType,
+    }
+
+    enum DataType {
+        StrData(String),
+        Hdata(i32),  // TODO build an hdata struct
+    }
+
     /// Converts a 4 byte array slice into a 32 bit signed integer. The bytes
     /// are assumed to be encoded in a big-endian format
     fn bytes_to_int(byte_array: &[u8]) -> i32 {
         assert!(byte_array.len() == 4, "Array isn't 4 bytes, cannot cast to int");
 
-        // Re-arrange bytes from little to big-endian (so we can transmute them)
+        // Re-arrange bytes from big to little-endian (so we can transmute them)
         let mut bytes: [u8; 4] = [0, 0, 0, 0];
         bytes[0] = byte_array[3];
         bytes[1] = byte_array[2];
@@ -44,30 +51,6 @@ mod weechat {
         return i;
     }
 
-    /// Given a byte array which contains an encoded str, pull the string out
-    /// and return it. The protocol from strings are:
-    ///
-    /// bytes 0 - 3: "str"
-    /// bytes 3 - 7: signed integer, size of string
-    /// bytes 7 - ?: The actual string message
-    ///
-    /// Note: An empty string is valid, in this cass length will be 0. A NULL
-    ///       string is also valid, it has length of -1.
-    fn extract_string(data: &[u8]) -> &str {
-        assert!(data.len() >= 7, "Not enough bytes in array to extract string");
-        let obj_type = from_utf8(&data[0..3]).unwrap();
-        assert!(obj_type == "str");
-        let str_size = bytes_to_int(&data[3..7]);
-
-        if str_size == 0 {
-            return "";
-        } else if str_size == -1 {
-            return "";  // TODO how would we want to encode the idea of a null string?
-        } else {
-            let end_pos = 7 + str_size as usize;
-            return from_utf8(&data[7..end_pos]).unwrap();
-        }
-    }
 
     impl Relay {
         pub fn new(host: String, port: i32, password: String) -> Relay {
@@ -89,7 +72,7 @@ mod weechat {
             let _ = self.stream.write_all(cmd_str.as_bytes());
         }
 
-        fn recv_msg(&mut self) {
+        fn recv_msg(&mut self) -> MessageData {
             // header is first 5 bytes. The first 4 are the length, and the last
             // one is if compression is enabled or not
             let mut buffer = [0; HEADER_LENGTH];
@@ -100,40 +83,8 @@ mod weechat {
             // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
             let _ = self.stream.read_exact(data.as_mut_slice());
-            self.parse_cmd(data.as_slice());
-            /*
-            println!("data length is {}", data.len());
-            for byte in data {
-                println!("received: {}", byte);
-            }
-            */
-        }
-
-        fn parse_cmd(&mut self, data: &[u8]) {
-            // First 4 bytes are the integer length of the command name
-            let command_name_length = bytes_to_int(&data[0..4]);
-            let start_pos = 4;
-            let end_pos = 4 + command_name_length as usize;
-            let command_name = from_utf8(&data[start_pos..end_pos]).unwrap();
-
-            // The rest of the received data that needs to be sent to the handler
-            let cmd_data = &data[end_pos..];
-
-            // Subsequent bytes depend on what the command is
-            match command_name {
-                "_pong" => { self.handle_pong(&cmd_data); }
-                _       => { panic!(format!("unsupported command: {}", command_name)); }
-            }
-
-            // TODO build some generic or wrapper struct where we can return
-            //      anything that we need to from this method (string, struct,
-            //      int, whatever)
-        }
-
-        fn handle_pong(&mut self, data: &[u8]) {
-            // TODO actually return this (see note above in parse_cmd)
-            let result = extract_string(data);
-            println!("received pong: {}", result);
+            let command = MessageData::new(data.as_slice());
+            return command;
         }
 
         fn init_relay(&mut self) {
@@ -142,8 +93,21 @@ mod weechat {
             // the password failed
             let cmd_str = format!("init password={},compression=off", self.password);
             self.send_cmd(cmd_str);
-            self.ping();
-            self.recv_msg();
+            let ping_msg = "foobarbaz";
+            self.ping(ping_msg);
+            let recv = self.recv_msg();
+
+            // TODO As if either of these fail it is probably a bad password,
+            //      we should probably do something smarter then panicing here
+            match recv.identifier.as_ref() {
+                "_pong" => println!("Received pong"),
+                _       => panic!("Did not receive pong"),
+            }
+            match recv.data {
+                DataType::StrData(ref s) if s == ping_msg  => println!("{}", s),
+                DataType::StrData(ref s) if s != ping_msg  => panic!("Received invallid pong msg"),
+                _                                          => panic!("Pong received Hdata"),
+            }
         }
 
         fn close_relay(&mut self) {
@@ -151,14 +115,13 @@ mod weechat {
             self.send_cmd(cmd_str);
         }
 
-        fn ping(&mut self) {
-            let cmd_str = String::from("ping foobar");
+        fn ping(&mut self, msg: &str) {
+            let cmd_str = String::from(format!("ping {}", msg));
             self.send_cmd(cmd_str);
         }
 
         pub fn run(&mut self) {
             self.init_relay();
-            //thread::sleep(Duration::from_millis(5000));
             self.close_relay();
         }
     }
@@ -185,6 +148,63 @@ mod weechat {
             MessageHeader {
                 length: length,
                 compression: compression,
+            }
+        }
+    }
+
+    impl MessageData {
+
+        pub fn new(data: &[u8]) -> MessageData {
+            // First 4 bytes are the integer length of the command name
+            let identifier_length = bytes_to_int(&data[0..4]);
+            let start_pos = 4;
+            let end_pos = 4 + identifier_length as usize;
+            let identifier = from_utf8(&data[start_pos..end_pos]).unwrap();
+
+            // The rest of the received data that needs to be sent to the handler
+            let cmd_data = &data[end_pos..];
+
+            // Parse out the data for this message
+            let dt = match identifier {
+                "_pong" => { MessageData::parse_pong(&cmd_data) }
+                _       => { panic!(format!("unsupported command: {}", identifier)); }
+            };
+
+            // Return our struct
+            MessageData {
+                identifier: String::from(identifier),
+                data: dt,
+            }
+        }
+
+        fn parse_pong(data: &[u8]) -> DataType {
+            let result: String = MessageData::extract_string(data);
+            DataType::StrData(result)
+        }
+
+        /// Given a byte array which contains an encoded str, pull the string out
+        /// and return it. The protocol from strings are:
+        ///
+        /// bytes 0 - 3: "str"
+        /// bytes 3 - 7: signed integer, size of string
+        /// bytes 7 - ?: The actual string message
+        ///
+        /// Note: An empty string is valid, in this cass length will be 0. A NULL
+        ///       string is also valid, it has length of -1.
+        fn extract_string(data: &[u8]) -> String {
+            assert!(data.len() >= 7, "Not enough bytes in array to extract string");
+            let obj_type = from_utf8(&data[0..3]).unwrap();
+            assert!(obj_type == "str");
+            let str_size = bytes_to_int(&data[3..7]);
+
+            if str_size == 0 {
+                return String::from("");
+            } else if str_size == -1 {
+                return String::from("");  // TODO how would we want to encode the idea of a null string?
+            } else {
+                let end_pos = 7 + str_size as usize;
+                let str_data = from_utf8(&data[7..end_pos]).unwrap();
+                return String::from(str_data);
             }
         }
     }
