@@ -6,6 +6,7 @@ mod weechat {
     use std::net::TcpStream;
     use std::str::from_utf8;
     use std::mem;
+    use std::io;
 
     const HEADER_LENGTH: usize = 5;
 
@@ -70,40 +71,50 @@ mod weechat {
             let _ = self.stream.write_all(cmd_str.as_bytes());
         }
 
-        fn recv_msg(&mut self) -> MessageData {
+        fn recv_msg(&mut self) -> io::Result<MessageData> {
             // header is first 5 bytes. The first 4 are the length, and the last
             // one is if compression is enabled or not
             let mut buffer = [0; HEADER_LENGTH];
-            let _ = self.stream.read_exact(&mut buffer);
+            try!(self.stream.read_exact(&mut buffer));
             let header = MessageHeader::new(&buffer);
-            println!("Length is {} and compression is {}", header.length, header.compression);
 
             // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
-            let _ = self.stream.read_exact(data.as_mut_slice());
-            MessageData::new(data.as_slice())
+            try!(self.stream.read_exact(data.as_mut_slice()));
+            Ok(MessageData::new(data.as_slice()))
         }
 
         fn init_relay(&mut self) {
-            // If init failed, the protocol wont say anyting. Try doing a
-            // ping->pong right now, and if that disconnects the socket then
-            // the password failed
+            // If initing the relay failed (due to a bad password) the protocol
+            // will not actually send us a message saying that, it will just
+            // silently disconnect the socket. To check this, we will do a ping
+            // pong right after initing, which if the password is bad should
+            // result in no bytes being read from the socket (UnexpectedEof)
             let cmd_str = format!("init password={},compression=off", self.password);
             self.send_cmd(cmd_str);
             let ping_msg = "foobarbaz";
             self.ping(ping_msg);
-            let recv = self.recv_msg();
+            let result = self.recv_msg();
 
-            // TODO As if either of these fail it is probably a bad password,
-            //      we should probably do something smarter then panicing here
-            match recv.identifier.as_ref() {
-                "_pong" => println!("Received pong"),
-                _       => panic!("Did not receive pong"),
-            }
-            match recv.data {
-                DataType::StrData(ref s) if s == ping_msg  => println!("{}", s),
-                DataType::StrData(ref s) if s != ping_msg  => panic!("Received invallid pong msg"),
-                _                                          => panic!("Pong received Hdata"),
+            // We don't really need to check that the ping data is correct here,
+            // but it doesn't hurt anything (and this match statement is neat!)
+            // TODO propogate weechat error indicating bad password instead of panic
+            match result {
+                Err(e) => match e.kind() {
+                    io::ErrorKind::UnexpectedEof => panic!("Bad password"),
+                    _                            => panic!("{}", e),
+                },
+                Ok(msg_data) => {
+                    match msg_data.identifier.as_ref() {
+                        "_pong" => {},
+                        _       => panic!("Did not receive pong"),
+                    }
+                    match msg_data.data {
+                        DataType::StrData(ref s) if s == ping_msg  => {},
+                        DataType::StrData(ref s)                   => panic!("bad pong msg: {}", s),
+                        DataType::Hdata(_)                         => panic!("Pong received hdata"),
+                    }
+                }
             }
         }
 
