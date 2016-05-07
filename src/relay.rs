@@ -97,7 +97,7 @@ mod weechat {
             };
 
             // TODO this should return a WeechatRelay error
-            relay.init_relay();
+            try!(relay.init_relay());
             return Ok(relay);
         }
 
@@ -115,7 +115,7 @@ mod weechat {
             let _ = self.stream.write_all(cmd_str.as_bytes());
         }
 
-        fn recv_msg(&mut self) -> io::Result<MessageData> {
+        fn recv_msg(&mut self) -> Result<MessageData, WeechatError> {
             // header is first 5 bytes. The first 4 are the length, and the last
             // one is if compression is enabled or not
             let mut buffer = [0; HEADER_LENGTH];
@@ -130,7 +130,7 @@ mod weechat {
 
 
         // TODO has to return nothing or a weechat error
-        fn init_relay(&mut self) {
+        fn init_relay(&mut self) -> Result<(), WeechatError> {
             // If initing the relay failed (due to a bad password) the protocol
             // will not actually send us a message saying that, it will just
             // silently disconnect the socket. To check this, we will do a ping
@@ -142,12 +142,18 @@ mod weechat {
             self.ping(ping_msg);
             let result = self.recv_msg();
 
-            // We don't really need to check that the ping data is correct here,
-            // but it doesn't hurt anything (and this match statement is neat!)
+            // UnexpectedEof means that a bad password was sent in. Any other
+            // error is something unexpected, so just bail out for now.
+            // TODO bailing out in a library probably isn't great, perhaps we
+            //      should add a new error type to weechat error
             match result {
-                Err(e) => match e.kind() {
-                    io::ErrorKind::UnexpectedEof => panic!("Bad password"),
-                    _                            => panic!("{}", e),
+                Err(e) => match e {
+                    WeechatError::BadPassword          => panic!("BadPassword error should exist here"),
+                    WeechatError::NoDataHandler(ref s) => panic!("No handler for: {}", s),
+                    WeechatError::Io(err)          => match err.kind() {
+                        io::ErrorKind::UnexpectedEof => Err(WeechatError::BadPassword),
+                        _                            => Err(WeechatError::Io(err)),
+                    },
                 },
                 Ok(msg_data) => {
                     match msg_data.identifier.as_ref() {
@@ -155,7 +161,7 @@ mod weechat {
                         _       => panic!("Did not receive pong"),
                     }
                     match msg_data.data {
-                        DataType::StrData(ref s) if s == ping_msg  => {},
+                        DataType::StrData(ref s) if s == ping_msg  => Ok({}),
                         DataType::StrData(ref s)                   => panic!("bad pong msg: {}", s),
                         DataType::Hdata(_)                         => panic!("Pong received hdata"),
                     }
@@ -174,7 +180,6 @@ mod weechat {
         }
 
         pub fn run(&mut self) {
-            self.init_relay();
             /*
             while true {
                 recv();
@@ -278,6 +283,9 @@ fn main() {
     let password = String::from("porter22pears");
 
     // Needs to be mutable cause the underlying TcpStream must be mutable
-    let mut relay = weechat::Relay::new(host, port, password).unwrap();
-    relay.run();
+    match weechat::Relay::new(host, port, password) {
+        Ok(relay) => println!("Relay active"),
+        Err(e) => println!("{}", e)
+    };
+    //relay.run();
 }
