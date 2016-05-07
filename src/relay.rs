@@ -7,6 +7,8 @@ mod weechat {
     use std::str::from_utf8;
     use std::mem;
     use std::io;
+    use std::error::Error;
+    use std::fmt;
 
     const HEADER_LENGTH: usize = 5;
 
@@ -32,28 +34,36 @@ mod weechat {
         Hdata(i32),  // TODO build an hdata struct
     }
 
-    struct Error {
-        kind: ErrorKind,
-        desc: String,
+    #[derive(Debug)]
+    pub enum WeechatError {
+        Io(io::Error),  // Errors reading, writing, or connecting to socket
+        BadPassword,    // Bad password for weechat init protocol
+        NoDataHandler(String),  // Received data we don't know how to deal with
     }
 
-    enum ErrorKind {
-        Io(io::Error),     // Errors reading, writing, or connecting to socket
-        BadPassword,       // Bad password for weechat init protocol
-        InvalidDataError,  // Received data we don't know how to deal with
-    }
-
-    // TODO add error trait
-    impl Error {
-        pub fn new(kind: ErrorKind, desc: &str) -> Error {
-            Error {
-                kind: kind,
-                desc: String::from(desc),
-            }
+    impl From<io::Error> for WeechatError {
+        fn from(err: io::Error) -> WeechatError {
+            WeechatError::Io(err)
         }
+    }
 
+    impl fmt::Display for WeechatError {
+		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match *self {
+                WeechatError::Io(ref err) => err.fmt(f),
+                WeechatError::BadPassword => write!(f, "Invalid username or password"),
+                WeechatError::NoDataHandler(ref s) => write!(f, "No handler found for {}", s)
+            }
+		}
+    }
+
+    impl Error for WeechatError {
         fn description(&self) -> &str {
-            self.desc.as_ref()
+            match *self {
+                WeechatError::Io(ref err)          => err.description(),
+                WeechatError::BadPassword          => "Invalid username or password",
+                WeechatError::NoDataHandler(ref s) =>  "No handler found"
+            }
         }
     }
 
@@ -78,16 +88,17 @@ mod weechat {
     impl Relay {
         pub fn new(host: String, port: i32, password: String) -> Result<Relay, WeechatError> {
             // TODO match stream and return weechat error if something is wrong
-            let stream = connect_relay(addr);
-            let relay = Relay {
+            let stream = try!(Relay::connect_relay(host.as_ref(), port));
+            let mut relay = Relay {
                 host: host,
                 port: port,
                 password: password,
                 stream: stream
             };
-            // TODO figure out what this should return, then return either the
-            //      relay or the weechat error
-            relay.init_relay()
+
+            // TODO this should return a WeechatRelay error
+            relay.init_relay();
+            return Ok(relay);
         }
 
         fn connect_relay(host: &str, port: i32) -> io::Result<TcpStream> {
@@ -264,9 +275,9 @@ fn main() {
     // TODO move these into a conf file somewhere
     let host = String::from("weechat.vimalloc.com");
     let port = 8001;
-    let password = String::from("porter2pears");
+    let password = String::from("porter22pears");
 
     // Needs to be mutable cause the underlying TcpStream must be mutable
-    let mut relay = weechat::Relay::new(host, port, password);
-    relay.run()
+    let mut relay = weechat::Relay::new(host, port, password).unwrap();
+    relay.run();
 }
