@@ -32,6 +32,31 @@ mod weechat {
         Hdata(i32),  // TODO build an hdata struct
     }
 
+    struct Error {
+        kind: ErrorKind,
+        desc: String,
+    }
+
+    enum ErrorKind {
+        Io(io::Error),     // Errors reading, writing, or connecting to socket
+        BadPassword,       // Bad password for weechat init protocol
+        InvalidDataError,  // Received data we don't know how to deal with
+    }
+
+    // TODO add error trait
+    impl Error {
+        pub fn new(kind: ErrorKind, desc: &str) -> Error {
+            Error {
+                kind: kind,
+                desc: String::from(desc),
+            }
+        }
+
+        fn description(&self) -> &str {
+            self.desc.as_ref()
+        }
+    }
+
     /// Converts a 4 byte array slice into a 32 bit signed integer. The bytes
     /// are assumed to be encoded in a big-endian format
     fn bytes_to_int(byte_array: &[u8]) -> i32 {
@@ -50,17 +75,25 @@ mod weechat {
         }
     }
 
-
     impl Relay {
-        pub fn new(host: String, port: i32, password: String) -> Relay {
-            let addr = format!("{}:{}", host, port);
-            let stream = TcpStream::connect(&*addr).unwrap();
-            Relay {
+        pub fn new(host: String, port: i32, password: String) -> Result<Relay, WeechatError> {
+            // TODO match stream and return weechat error if something is wrong
+            let stream = connect_relay(addr);
+            let relay = Relay {
                 host: host,
                 port: port,
                 password: password,
                 stream: stream
-            }
+            };
+            // TODO figure out what this should return, then return either the
+            //      relay or the weechat error
+            relay.init_relay()
+        }
+
+        fn connect_relay(host: &str, port: i32) -> io::Result<TcpStream> {
+            // The initial tpc connection to the server
+            let addr = format!("{}:{}", host, port);
+            TcpStream::connect(&*addr)
         }
 
         fn send_cmd(&mut self, mut cmd_str: String) {
@@ -84,6 +117,8 @@ mod weechat {
             Ok(MessageData::new(data.as_slice()))
         }
 
+
+        // TODO has to return nothing or a weechat error
         fn init_relay(&mut self) {
             // If initing the relay failed (due to a bad password) the protocol
             // will not actually send us a message saying that, it will just
@@ -98,7 +133,6 @@ mod weechat {
 
             // We don't really need to check that the ping data is correct here,
             // but it doesn't hurt anything (and this match statement is neat!)
-            // TODO propogate weechat error indicating bad password instead of panic
             match result {
                 Err(e) => match e.kind() {
                     io::ErrorKind::UnexpectedEof => panic!("Bad password"),
@@ -130,6 +164,13 @@ mod weechat {
 
         pub fn run(&mut self) {
             self.init_relay();
+            /*
+            while true {
+                recv();
+                if recv failed, try to reconnect
+                else handle recv
+            }
+            */
             self.close_relay();
         }
     }
