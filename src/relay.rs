@@ -1,5 +1,4 @@
 
-// TODO handle if it receives an invalid password
 
 mod weechat {
     use std::io::prelude::*;
@@ -16,7 +15,7 @@ mod weechat {
         host: String,
         port: i32,
         password: String,
-        stream: TcpStream,
+        reconnect: bool,
     }
 
     struct MessageHeader {
@@ -51,7 +50,7 @@ mod weechat {
 		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match *self {
                 WeechatError::Io(ref err) => err.fmt(f),
-                WeechatError::BadPassword => write!(f, "Invalid username or password"),
+                WeechatError::BadPassword => write!(f, "Invalid password"),
                 WeechatError::NoDataHandler(ref s) => write!(f, "No handler found for {}", s)
             }
 		}
@@ -60,9 +59,9 @@ mod weechat {
     impl Error for WeechatError {
         fn description(&self) -> &str {
             match *self {
-                WeechatError::Io(ref err)          => err.description(),
-                WeechatError::BadPassword          => "Invalid username or password",
-                WeechatError::NoDataHandler(ref s) =>  "No handler found"
+                WeechatError::Io(ref err)      => err.description(),
+                WeechatError::BadPassword      => "Invalid username or password",
+                WeechatError::NoDataHandler(_) =>  "No handler found"
             }
         }
     }
@@ -86,70 +85,64 @@ mod weechat {
     }
 
     impl Relay {
-        pub fn new(host: String, port: i32, password: String) -> Result<Relay, WeechatError> {
-            // TODO match stream and return weechat error if something is wrong
-            let stream = try!(Relay::connect_relay(host.as_ref(), port));
-            let mut relay = Relay {
+        pub fn new(host: String, port: i32, password: String, reconnect: bool) -> Relay {
+             Relay {
                 host: host,
                 port: port,
                 password: password,
-                stream: stream
-            };
-
-            // TODO this should return a WeechatRelay error
-            try!(relay.init_relay());
-            return Ok(relay);
+                reconnect: reconnect,
+            }
         }
 
-        fn connect_relay(host: &str, port: i32) -> io::Result<TcpStream> {
+        fn connect_relay(&self) -> Result<TcpStream, WeechatError> {
             // The initial tpc connection to the server
-            let addr = format!("{}:{}", host, port);
-            TcpStream::connect(&*addr)
+            let addr = format!("{}:{}", self.host, self.port);
+            match TcpStream::connect(&*addr) {
+                Ok(stream) => Ok(stream),
+                Err(e)     => Err(WeechatError::Io(e))
+            }
         }
 
-        fn send_cmd(&mut self, mut cmd_str: String) {
+        fn send_cmd(&self, mut stream: &TcpStream, mut cmd_str: String) {
             // Relay must end in \n per spec
             if !cmd_str.ends_with("\n") {
                 cmd_str.push('\n');
             }
-            let _ = self.stream.write_all(cmd_str.as_bytes());
+            let _ = stream.write_all(cmd_str.as_bytes());
         }
 
-        fn recv_msg(&mut self) -> Result<MessageData, WeechatError> {
+        fn recv_msg(&self, mut stream: &TcpStream) -> Result<MessageData, WeechatError> {
             // header is first 5 bytes. The first 4 are the length, and the last
             // one is if compression is enabled or not
             let mut buffer = [0; HEADER_LENGTH];
-            try!(self.stream.read_exact(&mut buffer));
+            try!(stream.read_exact(&mut buffer));
             let header = MessageHeader::new(&buffer);
 
             // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
-            try!(self.stream.read_exact(data.as_mut_slice()));
+            try!(stream.read_exact(data.as_mut_slice()));
             Ok(MessageData::new(data.as_slice()))
         }
 
-
-        // TODO has to return nothing or a weechat error
-        fn init_relay(&mut self) -> Result<(), WeechatError> {
+        fn init_relay(&self, stream: &TcpStream) -> Result<(), WeechatError> {
             // If initing the relay failed (due to a bad password) the protocol
             // will not actually send us a message saying that, it will just
             // silently disconnect the socket. To check this, we will do a ping
             // pong right after initing, which if the password is bad should
             // result in no bytes being read from the socket (UnexpectedEof)
             let cmd_str = format!("init password={},compression=off", self.password);
-            self.send_cmd(cmd_str);
-            let ping_msg = "foobarbaz";
-            self.ping(ping_msg);
-            let result = self.recv_msg();
+            self.send_cmd(stream, cmd_str);
+            self.send_cmd(stream, String::from("ping foobar"));
 
             // UnexpectedEof means that a bad password was sent in. Any other
-            // error is something unexpected, so just bail out for now.
-            // TODO bailing out in a library probably isn't great, perhaps we
-            //      should add a new error type to weechat error
-            match result {
+            // error is something unexpected, so just bail out for now. If it
+            // is an IoError, pass it back to the caller so they can deal wtih
+            // it. If it's anything else, it should never happen, so it likely
+            // indicates a bug in our program. Panic it
+            match self.recv_msg(stream) {
                 Err(e) => match e {
-                    WeechatError::BadPassword          => panic!("BadPassword error should exist here"),
-                    WeechatError::NoDataHandler(ref s) => panic!("No handler for: {}", s),
+                    WeechatError::BadPassword      => panic!("BadPassword should not exist here"),
+                    WeechatError::NoDataHandler(_) => panic!("NoDataHandler should not exist here"),
                     WeechatError::Io(err)          => match err.kind() {
                         io::ErrorKind::UnexpectedEof => Err(WeechatError::BadPassword),
                         _                            => Err(WeechatError::Io(err)),
@@ -158,10 +151,10 @@ mod weechat {
                 Ok(msg_data) => {
                     match msg_data.identifier.as_ref() {
                         "_pong" => {},
-                        _       => panic!("Did not receive pong"),
+                        _       => panic!("Received something besides pong after init"),
                     }
                     match msg_data.data {
-                        DataType::StrData(ref s) if s == ping_msg  => Ok({}),
+                        DataType::StrData(ref s) if s == "foobar"  => Ok(()),
                         DataType::StrData(ref s)                   => panic!("bad pong msg: {}", s),
                         DataType::Hdata(_)                         => panic!("Pong received hdata"),
                     }
@@ -169,25 +162,28 @@ mod weechat {
             }
         }
 
-        fn close_relay(&mut self) {
+        fn close_relay(&self, stream: &TcpStream) {
             let cmd_str = String::from("quit");
-            self.send_cmd(cmd_str);
+            self.send_cmd(stream, cmd_str);
         }
 
-        fn ping(&mut self, msg: &str) {
-            let cmd_str = String::from(format!("ping {}", msg));
-            self.send_cmd(cmd_str);
-        }
-
-        pub fn run(&mut self) {
-            /*
-            while true {
-                recv();
-                if recv failed, try to reconnect
-                else handle recv
+        pub fn run(&self) -> Result<(), WeechatError> {
+            loop {
+                let stream = &try!(self.connect_relay());
+                try!(self.init_relay(stream));
+                /*
+                loop {
+                    recv(stream);
+                    if recv failed, try to reconnect
+                    else handle recv
+                }
+                */
+                self.close_relay(stream);
+                if self.reconnect == false {
+                    break;
+                }
             }
-            */
-            self.close_relay();
+            Ok(())
         }
     }
 
@@ -214,7 +210,6 @@ mod weechat {
     }
 
     impl MessageData {
-
         pub fn new(data: &[u8]) -> MessageData {
             // First 4 bytes are the integer length of the command name
             let identifier_length = bytes_to_int(&data[0..4]);
@@ -281,11 +276,12 @@ fn main() {
     let host = String::from("weechat.vimalloc.com");
     let port = 8001;
     let password = String::from("porter22pears");
+    let reconnect = false;
 
     // Needs to be mutable cause the underlying TcpStream must be mutable
-    match weechat::Relay::new(host, port, password) {
-        Ok(relay) => println!("Relay active"),
-        Err(e) => println!("{}", e)
-    };
-    //relay.run();
+    let relay =  weechat::Relay::new(host, port, password, reconnect);
+    match relay.run() {
+        Err(e) => println!("{}", e),
+        Ok(_) => ()
+    }
 }
