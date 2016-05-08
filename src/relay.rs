@@ -1,6 +1,7 @@
 
 
 mod weechat {
+    use std::net::Shutdown;
     use std::io::prelude::*;
     use std::net::TcpStream;
     use std::str::from_utf8;
@@ -15,7 +16,6 @@ mod weechat {
         host: String,
         port: i32,
         password: String,
-        reconnect: bool,
     }
 
     struct MessageHeader {
@@ -85,12 +85,11 @@ mod weechat {
     }
 
     impl Relay {
-        pub fn new(host: String, port: i32, password: String, reconnect: bool) -> Relay {
+        pub fn new(host: String, port: i32, password: String) -> Relay {
              Relay {
                 host: host,
                 port: port,
                 password: password,
-                reconnect: reconnect,
             }
         }
 
@@ -162,28 +161,34 @@ mod weechat {
             }
         }
 
-        fn close_relay(&self, stream: &TcpStream) {
+        /// Tell weechat we are done, and close our socket. TcpStream can no
+        /// longer be used after a call to close_relay
+        fn close_relay(&self, mut stream: &TcpStream) {
             let cmd_str = String::from("quit");
             self.send_cmd(stream, cmd_str);
+            let _ = stream.flush();
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+
+        fn run_loop(&self, stream: &TcpStream) -> Result<(), WeechatError> {
+            try!(self.init_relay(stream));
+            /*
+            loop {
+                // TODO if we don't receive a message in X seconds, we should
+                //      do a ping/pong to keep the tcp connection alive
+                recv(stream);
+                if recv failed, send WeechatError up to caller
+                else handle recv using registered handlers
+            }
+            */
+            Ok(())
         }
 
         pub fn run(&self) -> Result<(), WeechatError> {
-            loop {
-                let stream = &try!(self.connect_relay());
-                try!(self.init_relay(stream));
-                /*
-                loop {
-                    recv(stream);
-                    if recv failed, try to reconnect
-                    else handle recv
-                }
-                */
-                self.close_relay(stream);
-                if self.reconnect == false {
-                    break;
-                }
-            }
-            Ok(())
+            let stream = &try!(self.connect_relay());
+            let result = self.run_loop(stream);
+            self.close_relay(stream);
+            result
         }
     }
 
@@ -269,17 +274,14 @@ mod weechat {
     }
 }
 
-
-
 fn main() {
     // TODO move these into a conf file somewhere
     let host = String::from("weechat.vimalloc.com");
     let port = 8001;
     let password = String::from("porter22pears");
-    let reconnect = false;
 
-    // Needs to be mutable cause the underlying TcpStream must be mutable
-    let relay =  weechat::Relay::new(host, port, password, reconnect);
+    // Run our program
+    let relay =  weechat::Relay::new(host, port, password);
     match relay.run() {
         Err(e) => println!("{}", e),
         Ok(_) => ()
