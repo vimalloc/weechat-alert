@@ -35,7 +35,7 @@ mod weechat {
     }
 
     struct HData {
-        path: Vec<Pointer>,
+        paths: Vec<Pointer>,
         keys: HashMap<String, DataType>
     }
 
@@ -313,11 +313,13 @@ mod weechat {
         }
 
         fn parse_buffer_line_added(data: &[u8]) -> MessageType {
+            /*
             println!("Bytes incoming");
             for byte in data {
                 print!("{} ", byte);
             }
             println!("\nBytes done");
+            */
             let _ = MessageData::binary_to_hdata(data);
             MessageType::StrData(String::from("foobarbaz"))
         }
@@ -335,15 +337,30 @@ mod weechat {
             start = end;
             end = data.len();
             let extracted = extract_string(&data[start..end]);
-            println!("{}", extracted.str);
+            let mut paths = Vec::new();
+            for path in extracted.str.split(',') {
+                paths.push(path);
+            }
 
-            // int (size of path string)
-            // Path (comma seperated)
-            // int (size of keys string)
-            // key_name:value_type (comma seperated)
-            //
+            // Parse out key names and types
+            start += extracted.bytes_read;
+            let extracted = extract_string(&data[start..end]);
+            let mut keys = Vec::new();
+            for key in extracted.str.split(',') {
+                keys.push(key);
+            }
+
+            start += extracted.bytes_read;
+
+            // Debug, see what the rest of the data looks like
+            println!("Start byets:");
+            for byte in &data[start..end] {
+                print!("{} ", byte);
+            }
+            println!("\nByets finished!\n\n");
+
             HData {
-                path: Vec::new(),
+                paths: Vec::new(),
                 keys: HashMap::new(),
             }
         }
