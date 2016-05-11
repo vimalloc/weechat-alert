@@ -52,6 +52,12 @@ mod weechat {
         Arr(Vec<DataType>),  // TODO
     }
 
+    struct ExtractString {
+        null: bool,
+        str: String,
+        bytes_read: usize,
+    }
+
     #[derive(Debug)]
     pub enum WeechatError {
         Io(io::Error),  // Errors reading, writing, or connecting to socket
@@ -100,6 +106,46 @@ mod weechat {
         // Do the casting
         unsafe {
             mem::transmute::<[u8; 4], i32>(bytes)
+        }
+    }
+
+    /// Given a byte array which contains an encoded str, pull the string out
+    /// and return it. The protocol from strings are:
+    ///
+    /// bytes 0 - 4: signed integer, size of string
+    /// bytes 4 - ?: The actual string message
+    ///
+    /// Note: An empty string is valid, in this cass length will be 0. A NULL
+    ///       string is also valid, it has length of -1. This is encoded in the
+    ///       ExtractString struct
+    fn extract_string(data: &[u8]) -> ExtractString {
+        // Sanity checks
+        assert!(data.len() >= 4, "Not enough bytes in array to extract string");
+
+        // Get the start and end limits for this string
+        let mut start = 0;
+        let mut end = 4;
+        let str_size = bytes_to_int(&data[start..end]);
+        start = end;
+        end += str_size as usize;
+
+        // Pull out and return the string
+        match str_size {
+            0   => ExtractString {  // Empty string
+                       null: false,
+                       str: String::from(""),
+                       bytes_read: end
+                   },
+            -1  => ExtractString {  // Null string
+                       null: true,
+                       str: String::from(""),
+                       bytes_read: end
+                   },
+            _   => ExtractString {  // Null string
+                      null: false,
+                      str: String::from(from_utf8(&data[start..end]).unwrap()),
+                      bytes_read: end
+                   },
         }
     }
 
@@ -234,6 +280,7 @@ mod weechat {
     }
 
     impl MessageData {
+
         pub fn new(data: &[u8]) -> Result<MessageData, WeechatError> {
             // First 4 bytes are the integer length of the command name
             let identifier_length = bytes_to_int(&data[0..4]);
@@ -246,8 +293,9 @@ mod weechat {
 
             // Parse out the data for this message
             let dt = match identifier {
-                "_pong" => MessageData::parse_pong(&cmd_data),
-                _       => return Err(WeechatError::NoDataHandler(String::from(identifier))),
+                "_pong"              => MessageData::parse_pong(&cmd_data),
+                "_buffer_line_added" => MessageData::parse_buffer_line_added(&cmd_data),
+                _                    => return Err(WeechatError::NoDataHandler(String::from(identifier))),
             };
 
             // Return our struct
@@ -258,37 +306,46 @@ mod weechat {
         }
 
         fn parse_pong(data: &[u8]) -> MessageType {
-            let result: String = MessageData::extract_string(data);
-            MessageType::StrData(result)
-        }
-
-        /// Given a byte array which contains an encoded str, pull the string out
-        /// and return it. The protocol from strings are:
-        ///
-        /// bytes 0 - 3: "str"
-        /// bytes 3 - 7: signed integer, size of string
-        /// bytes 7 - ?: The actual string message
-        ///
-        /// Note: An empty string is valid, in this cass length will be 0. A NULL
-        ///       string is also valid, it has length of -1.
-        fn extract_string(data: &[u8]) -> String {
-            // Sanity checks
-            assert!(data.len() >= 7, "Not enough bytes in array to extract string");
             let obj_type = from_utf8(&data[0..3]).unwrap();
             assert!(obj_type == "str");
+            let result = extract_string(&data[3..data.len()]);
+            MessageType::StrData(result.str)
+        }
 
-            // Get the start and end limits for this string
-            let str_size = bytes_to_int(&data[3..7]);
-            let start_pos = 7 as usize;
-            let end_pos = start_pos + str_size as usize;
+        fn parse_buffer_line_added(data: &[u8]) -> MessageType {
+            println!("Bytes incoming");
+            for byte in data {
+                print!("{} ", byte);
+            }
+            println!("\nBytes done");
+            let _ = MessageData::binary_to_hdata(data);
+            MessageType::StrData(String::from("foobarbaz"))
+        }
 
-            // Pull out and return the string
-            let data_str = match str_size {
-                0  => "",  // Empty string
-                -1 => "",  // Null string TODO how to encode the idea of this?
-                _  => from_utf8(&data[start_pos..end_pos]).unwrap(),
-            };
-            String::from(data_str)
+        fn binary_to_hdata(data: &[u8]) -> HData {
+            // Rolling counters for reading and parsing an hda message
+            let mut start = 0;
+            let mut end = 3;
+
+            // First, get and verify object type
+            let obj_type = from_utf8(&data[start..end]).unwrap();
+            assert!(obj_type == "hda");
+
+            // Parse out paths
+            start = end;
+            end = data.len();
+            let extracted = extract_string(&data[start..end]);
+            println!("{}", extracted.str);
+
+            // int (size of path string)
+            // Path (comma seperated)
+            // int (size of keys string)
+            // key_name:value_type (comma seperated)
+            //
+            HData {
+                path: Vec::new(),
+                keys: HashMap::new(),
+            }
         }
     }
 }
@@ -297,7 +354,7 @@ fn main() {
     // TODO move these into a conf file somewhere
     let host = String::from("weechat.vimalloc.com");
     let port = 8001;
-    let password = String::from("porter22pears");
+    let password = String::from("porter2pears");
 
     // Run our program
     let relay =  weechat::Relay::new(host, port, password);
