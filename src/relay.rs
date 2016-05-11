@@ -1,6 +1,7 @@
 
 
 mod weechat {
+    use std::collections::HashMap;
     use std::net::Shutdown;
     use std::io::prelude::*;
     use std::net::TcpStream;
@@ -25,12 +26,30 @@ mod weechat {
 
     struct MessageData {
         identifier: String,
-        data: DataType,
+        data: MessageType,
+    }
+
+    enum MessageType {
+        StrData(String),
+        HData(HData),
+    }
+
+    struct HData {
+        path: Vec<Pointer>,
+        keys: HashMap<String, DataType>
+    }
+
+    struct Pointer {
+        path: String,
+        pointer: String,
     }
 
     enum DataType {
-        StrData(String),
-        Hdata(i32),  // TODO build an hdata struct
+        Chr(char),
+        Int(i32),
+        Ptr(Pointer),
+        Str(Option<String>),  // Option encodes the idea of a null string
+        Arr(Vec<DataType>),  // TODO
     }
 
     #[derive(Debug)]
@@ -153,9 +172,9 @@ mod weechat {
                         _       => panic!("Received something besides pong after init"),
                     }
                     match msg_data.data {
-                        DataType::StrData(ref s) if s == "foobar"  => Ok(()),
-                        DataType::StrData(ref s)                   => panic!("bad pong msg: {}", s),
-                        DataType::Hdata(_)                         => panic!("Pong received hdata"),
+                        MessageType::StrData(ref s) if s == "foobar" => Ok(()),
+                        MessageType::StrData(ref s)                  => panic!("bad pong msg: {}", s),
+                        MessageType::HData(_)                        => panic!("Pong received hdata"),
                     }
                 }
             }
@@ -238,9 +257,9 @@ mod weechat {
             }
         }
 
-        fn parse_pong(data: &[u8]) -> DataType {
+        fn parse_pong(data: &[u8]) -> MessageType {
             let result: String = MessageData::extract_string(data);
-            DataType::StrData(result)
+            MessageType::StrData(result)
         }
 
         /// Given a byte array which contains an encoded str, pull the string out
