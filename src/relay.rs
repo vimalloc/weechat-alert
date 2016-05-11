@@ -140,7 +140,7 @@ mod weechat {
             // Now that we have the header, get the rest of the message.
             let mut data = vec![0; header.length];
             try!(stream.read_exact(data.as_mut_slice()));
-            Ok(MessageData::new(data.as_slice()))
+            MessageData::new(data.as_slice())
         }
 
         fn init_relay(&self, stream: &TcpStream) -> Result<(), WeechatError> {
@@ -182,7 +182,7 @@ mod weechat {
         }
 
         /// Tell weechat we are done, and close our socket. TcpStream can no
-        /// longer be used after a call to close_relay
+        /// longer be used after a call to close_relay. Any errors here are ignored
         fn close_relay(&self, mut stream: &TcpStream) {
             let cmd_str = String::from("quit");
             let _ = self.send_cmd(stream, cmd_str);
@@ -193,20 +193,14 @@ mod weechat {
         fn run_loop(&self, stream: &TcpStream) -> Result<(), WeechatError> {
             try!(self.init_relay(stream));
 
-            // We only need to sync buffers to get highlights
+            // We only need to sync buffers to get highlights. We don't need
+            // nicklist or anything like that
             let cmd_str = String::from("sync * buffer");
             try!(self.send_cmd(stream, cmd_str));
 
-            /*
             loop {
-                // TODO if we don't receive a message in X seconds, we should
-                //      do a ping/pong to keep the tcp connection alive
-                recv(stream);
-                if recv failed, send WeechatError up to caller
-                else handle recv using registered handlers
+                let mgs = try!(self.recv_msg(stream));
             }
-            */
-            Ok(())
         }
 
         pub fn run(&self) -> Result<(), WeechatError> {
@@ -240,7 +234,7 @@ mod weechat {
     }
 
     impl MessageData {
-        pub fn new(data: &[u8]) -> MessageData {
+        pub fn new(data: &[u8]) -> Result<MessageData, WeechatError> {
             // First 4 bytes are the integer length of the command name
             let identifier_length = bytes_to_int(&data[0..4]);
             let start_pos = 4;
@@ -252,15 +246,15 @@ mod weechat {
 
             // Parse out the data for this message
             let dt = match identifier {
-                "_pong" => { MessageData::parse_pong(&cmd_data) }
-                _       => { panic!(format!("unsupported command: {}", identifier)); }
+                "_pong" => MessageData::parse_pong(&cmd_data),
+                _       => return Err(WeechatError::NoDataHandler(String::from(identifier))),
             };
 
             // Return our struct
-            MessageData {
+            Ok(MessageData {
                 identifier: String::from(identifier),
                 data: dt,
-            }
+            })
         }
 
         fn parse_pong(data: &[u8]) -> MessageType {
@@ -308,7 +302,7 @@ fn main() {
     // Run our program
     let relay =  weechat::Relay::new(host, port, password);
     match relay.run() {
-        Err(e) => println!("{}", e),
+        Err(e) => println!("Error: {}", e),
         Ok(_) => ()
     }
 }
