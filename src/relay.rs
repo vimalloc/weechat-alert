@@ -66,13 +66,13 @@ mod weechat {
     }
 
     impl fmt::Display for WeechatError {
-		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match *self {
                 WeechatError::Io(ref err) => err.fmt(f),
                 WeechatError::BadPassword => write!(f, "Invalid password"),
                 WeechatError::NoDataHandler(ref s) => write!(f, "No handler found for {}", s)
             }
-		}
+        }
     }
 
     impl Error for WeechatError {
@@ -121,12 +121,13 @@ mod weechat {
             }
         }
 
-        fn send_cmd(&self, mut stream: &TcpStream, mut cmd_str: String) {
+        fn send_cmd(&self, mut stream: &TcpStream, mut cmd_str: String) -> Result<(), WeechatError> {
             // Relay must end in \n per spec
             if !cmd_str.ends_with("\n") {
                 cmd_str.push('\n');
             }
-            let _ = stream.write_all(cmd_str.as_bytes());
+            try!(stream.write_all(cmd_str.as_bytes()));
+            Ok(())
         }
 
         fn recv_msg(&self, mut stream: &TcpStream) -> Result<MessageData, WeechatError> {
@@ -149,8 +150,8 @@ mod weechat {
             // pong right after initing, which if the password is bad should
             // result in no bytes being read from the socket (UnexpectedEof)
             let cmd_str = format!("init password={},compression=off", self.password);
-            self.send_cmd(stream, cmd_str);
-            self.send_cmd(stream, String::from("ping foobar"));
+            try!(self.send_cmd(stream, cmd_str));
+            let _ = self.send_cmd(stream, String::from("ping foobar"));
 
             // UnexpectedEof means that a bad password was sent in. Any other
             // error is something unexpected, so just bail out for now. If it
@@ -184,13 +185,18 @@ mod weechat {
         /// longer be used after a call to close_relay
         fn close_relay(&self, mut stream: &TcpStream) {
             let cmd_str = String::from("quit");
-            self.send_cmd(stream, cmd_str);
+            let _ = self.send_cmd(stream, cmd_str);
             let _ = stream.flush();
             let _ = stream.shutdown(Shutdown::Both);
         }
 
         fn run_loop(&self, stream: &TcpStream) -> Result<(), WeechatError> {
             try!(self.init_relay(stream));
+
+            // We only need to sync buffers to get highlights
+            let cmd_str = String::from("sync * buffer");
+            try!(self.send_cmd(stream, cmd_str));
+
             /*
             loop {
                 // TODO if we don't receive a message in X seconds, we should
