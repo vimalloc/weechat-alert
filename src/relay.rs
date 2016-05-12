@@ -30,7 +30,7 @@ mod weechat {
     }
 
     enum MessageType {
-        StrData(String),
+        StrData(Option<String>),
         HData(HData),
     }
 
@@ -245,7 +245,7 @@ mod weechat {
             // result in no bytes being read from the socket (UnexpectedEof)
             let cmd_str = format!("init password={},compression=off", self.password);
             try!(self.send_cmd(stream, cmd_str));
-            let _ = self.send_cmd(stream, String::from("ping foobar"));
+            let _ = self.send_cmd(stream, String::from("ping foo"));
 
             // UnexpectedEof means that a bad password was sent in. Any other
             // error is something unexpected, so just bail out for now. If it
@@ -267,9 +267,10 @@ mod weechat {
                         _       => panic!("Received something besides pong after init"),
                     }
                     match msg_data.data {
-                        MessageType::StrData(ref s) if s == "foobar" => Ok(()),
-                        MessageType::StrData(ref s)                  => panic!("bad pong msg: {}", s),
-                        MessageType::HData(_)                        => panic!("Pong received hdata"),
+                        MessageType::StrData(Some(ref s)) if s == "foo" => Ok(()),
+                        MessageType::StrData(Some(ref s))               => panic!("bad pong msg {}", s),
+                        MessageType::StrData(None)                      => panic!("Null pong msg"),
+                        MessageType::HData(_)                           => panic!("Pong received hdata"),
                     }
                 }
             }
@@ -330,112 +331,78 @@ mod weechat {
     impl MessageData {
 
         pub fn new(data: &[u8]) -> Result<MessageData, WeechatError> {
-            // First 4 bytes are the integer length of the command name
-            let identifier_length = bytes_to_i32(&data[0..4]);
-            let start_pos = 4;
-            let end_pos = 4 + identifier_length as usize;
-            let identifier = from_utf8(&data[start_pos..end_pos]).unwrap();
+            // First thing encoded in the binary data is the identifier for
+            // what this command is
+            let extracted = extract_string(data);
+            let identifier = match extracted.value {
+                DataType::Str(Some(s)) => s,
+                _                      => panic!("identifier should be non-null DataType::Str"),
+            };
 
-            // The rest of the received data that needs to be sent to the handler
-            let cmd_data = &data[end_pos..];
-
-            // Parse out the data for this message
-            let dt = match identifier {
-                "_pong"              => MessageData::parse_pong(&cmd_data),
-                "_buffer_line_added" => MessageData::parse_buffer_line_added(&cmd_data),
-                _                    => return Err(WeechatError::NoDataHandler(String::from(identifier))),
+            // Next 3 bytes determin type of data in this command (hdata or str).
+            // Parse the data type depending
+            let start = extracted.bytes_read;
+            let end = start + 3;
+            let msg_type = match from_utf8(&data[start..end]).unwrap() {
+                "str" => MessageData::binary_to_strdata(&data[end..]),
+                "hda" => MessageData::binary_to_hdata(&data[end..]),
+                _     => panic!("Received unknown message type"),
             };
 
             // Return our struct
             Ok(MessageData {
                 identifier: String::from(identifier),
-                data: dt,
+                data: msg_type,
             })
         }
 
-        fn parse_pong(data: &[u8]) -> MessageType {
-            let obj_type = from_utf8(&data[0..3]).unwrap();
-            assert!(obj_type == "str");
-            let extracted = extract_string(&data[3..data.len()]);
+        fn binary_to_strdata(data: &[u8]) -> MessageType {
+            let extracted = extract_string(data);
             match extracted.value {
-                DataType::Str(Some(s)) => MessageType::StrData(s),
-                _                      => panic!("pong should be DataType::Str"),
+                DataType::Str(s) => MessageType::StrData(s),
+                _                => panic!("Extracted is not DataType::Str"),
             }
         }
 
-        fn parse_buffer_line_added(data: &[u8]) -> MessageType {
-            /*
-            println!("Bytes incoming");
-            for byte in data {
-                print!("{} ", byte);
-            }
-            println!("\nBytes done");
-            */
-            let _ = MessageData::binary_to_hdata(data);
-            MessageType::StrData(String::from("foobarbaz"))
-        }
-
-        fn binary_to_hdata(data: &[u8]) -> HData {
-            // Rolling counters for reading and parsing an hda message
-            let mut start = 0;
-            let mut end = 3;
-
-            // First, get and verify object type
-            let obj_type = from_utf8(&data[start..end]).unwrap();
-            assert!(obj_type == "hda");
+        fn binary_to_hdata(data: &[u8]) -> MessageType {
+            let mut cur_pos = 0; // Rolling counter of where we are in the byte array
+            let mut ppaths = Vec::new(); // list of pointer path structs
+            let mut key_value_map = HashMap::new();  // keys to value mapper
 
             // Parse out paths
-            start = end;
-            end = data.len();
-            let mut paths = Vec::new();
-            let extracted = extract_string(&data[start..end]);
-            let path_str = match extracted.value {
-                DataType::Str(Some(ref s)) => s,
+            let extracted = extract_string(&data[cur_pos..]);
+            cur_pos += extracted.bytes_read;
+            let paths: Vec<String> = match extracted.value {
+                DataType::Str(Some(ref s)) => s.split(',').map(|s| String::from(s)).collect(),
                 _                          => panic!("Paths should be non-null DataType::Str"),
             };
-            for path in path_str.split(',') {
-                paths.push(String::from(path));
-            }
 
             // Parse out key names and types
-            start += extracted.bytes_read;
-            end = data.len();
-            let mut keys = Vec::new();
-            let extracted = extract_string(&data[start..end]);
-            let key_str = match extracted.value {
-                DataType::Str(Some(s)) => s,
-                _                      => panic!("Keys should be non-null DataType::Str"),
+            let extracted = extract_string(&data[cur_pos..]);
+            cur_pos += extracted.bytes_read;
+            let keys: Vec<String> = match extracted.value {
+                DataType::Str(Some(ref s)) => s.split(',').map(|s| String::from(s)).collect(),
+                _                          => panic!("Keys should be non-null DataType::Str"),
             };
-            for key in key_str.split(',') {
-                keys.push(String::from(key));
-            }
 
             // Number of items in this hdata
-            start += extracted.bytes_read;
-            end = start + 4;
-            let num_hdata_items = bytes_to_i32(&data[start..end]);
-            println!("{}", num_hdata_items);
+            let num_hdata_items = bytes_to_i32(&data[cur_pos..cur_pos+4]);
+            cur_pos += 4;
 
             // Pull out path pointers
-            start = end;
-            end = data.len();
-            let mut ppaths = Vec::new();
             for path in paths {
-                let extracted = extract_pointer(&data[start..end]);
-                let pointer_str = match extracted.value {
-                    DataType::Ptr(Some(p)) => p,
-                    _                      => panic!("Pointer should be DataType::Ptr"),
+                let extracted = extract_pointer(&data[cur_pos..]);
+                cur_pos += extracted.bytes_read;
+                match extracted.value {
+                    DataType::Ptr(Some(p)) => ppaths.push(PPath{
+                                                             path: String::from(path),
+                                                             pointer: p
+                                                          }),
+                    _                      => panic!("Pointer should be not-null DataType::Ptr"),
                 };
-                let ppath = PPath{
-                    path: String::from(path),
-                    pointer: pointer_str,
-                };
-                ppaths.push(ppath);
-                start += extracted.bytes_read;
             }
 
             // Finally, we pull out the data for all of the keys that we have
-            let mut key_value_map = HashMap::new();
             for key in keys {
                 let key_parse: Vec<&str> = key.split(':').collect();
                 let key_name = key_parse[0];
@@ -464,10 +431,10 @@ mod weechat {
             println!("\nByets finished!\n\n");
             */
 
-            HData {
+            MessageType::HData(HData {
                 paths: ppaths,
                 keys: key_value_map,
-            }
+            })
         }
     }
 }
