@@ -52,17 +52,30 @@ mod weechat {
     impl fmt::Display for DataType {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match *self {
-                DataType::Buf(Some(ref b)) => write!(f, "TODO buffer (buf)"),
-                DataType::Str(Some(ref s)) => write!(f, "\"{}\" (str)", s),
-                DataType::Ptr(Some(ref p)) => write!(f, "0x{} (ptr)", p),
-                DataType::Buf(None)  => write!(f, "null (buf)"),
-                DataType::Str(None)  => write!(f, "null (str)"),
-                DataType::Ptr(None)  => write!(f, "0x0 (ptr)"),
-                DataType::Chr(ref c) => write!(f, "'{}' (chr)", c),
-                DataType::Int(ref i) => write!(f, "{} (int)", i),
-                DataType::Lon(ref l) => write!(f, "{} (lon)", l),
-                DataType::Tim(ref t) => write!(f, "{} (tim)", t),
-                DataType::Arr(ref d) => write!(f, "TODO write array"), //TODO
+                DataType::Str(Some(ref s)) => write!(f, "\"{}\"", s),
+                DataType::Ptr(Some(ref p)) => write!(f, "0x{}", p),
+                DataType::Buf(Some(ref b)) => {
+                                                  try!(write!(f, "[ "));
+                                                  for byte in b {
+                                                      try!(write!(f, "{}, ", byte));
+                                                  }
+                                                  write!(f, "]")
+                                              }
+                DataType::Buf(None)  => write!(f, "null"),
+                DataType::Str(None)  => write!(f, "null"),
+                DataType::Ptr(None)  => write!(f, "0x0"),
+                DataType::Chr(ref c) => write!(f, "{} ('{}')", *c as u8, c),
+                DataType::Int(ref i) => write!(f, "{}", i),
+                DataType::Lon(ref l) => write!(f, "{}", l),
+                DataType::Tim(ref t) => write!(f, "{}", t),
+                DataType::Arr(ref d) => {
+                                            try!(write!(f, "[ "));
+                                            for i in d {
+                                                try!(i.fmt(f));
+                                                try!(write!(f, ", "));
+                                            }
+                                            write!(f, "]")
+                                        },
             }
         }
     }
