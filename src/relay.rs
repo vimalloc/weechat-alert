@@ -489,7 +489,7 @@ mod weechat {
                 let msg = try!(self.recv_msg(stream));
                 match msg.identifier.as_ref() {
                     "_buffer_line_added" => self.handle_buffer_line_added(msg.data),
-                    _                    => println!("Unhandled event: {}", msg.identifier),
+                    _                    => (),
                 };
             }
         }
