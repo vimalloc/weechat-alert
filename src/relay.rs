@@ -443,13 +443,38 @@ mod weechat {
                 MessageType::StrData(_) => panic!("recvd strdata, expecting hdata"),
             };
 
-            println!("\n");
-            for data in &hdata.data {
-                for (key, value) in data {
-                    println!("{}: {}", key, value);
+            // Check if this line has a highlight or a private message that we
+            // should notify on
+            let mut play_sound = false;
+            for data in hdata.data {
+                let highlight = match data["highlight"] {
+                    DataType::Chr(c) => c,
+                    _                => panic!("Highlight should be a chr"),
+                };
+                if highlight == (1 as char) {
+                    play_sound = true;
+                    break;
                 }
-            };
-            println!("\n");
+
+                let tags_array = match data["tags_array"] {
+                    DataType::Arr(ref array) => array,
+                    _                        => panic!("tags_array should be type array"),
+                };
+                for element in tags_array {
+                    let tag_str = match element {
+                        &DataType::Str(Some(ref s)) => s.as_ref(),
+                        &DataType::Str(None)        => "",
+                        _                 => panic!("array should be type str"),
+                    };
+                    if tag_str == "notify_private" {
+                        play_sound = true;
+                        break
+                    }
+                }
+            }
+            if play_sound {
+                println!("Play sound here");
+            }
         }
 
         fn run_loop(&self, stream: &TcpStream) -> Result<(), WeechatError> {
