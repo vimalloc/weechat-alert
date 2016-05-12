@@ -49,6 +49,24 @@ mod weechat {
         Arr(Vec<DataType>),
     }
 
+    impl fmt::Display for DataType {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match *self {
+                DataType::Buf(Some(ref b)) => write!(f, "TODO buffer (buf)"),
+                DataType::Str(Some(ref s)) => write!(f, "\"{}\" (str)", s),
+                DataType::Ptr(Some(ref p)) => write!(f, "0x{} (ptr)", p),
+                DataType::Buf(None)  => write!(f, "null (buf)"),
+                DataType::Str(None)  => write!(f, "null (str)"),
+                DataType::Ptr(None)  => write!(f, "0x0 (ptr)"),
+                DataType::Chr(ref c) => write!(f, "'{}' (chr)", c),
+                DataType::Int(ref i) => write!(f, "{} (int)", i),
+                DataType::Lon(ref l) => write!(f, "{} (lon)", l),
+                DataType::Tim(ref t) => write!(f, "{} (tim)", t),
+                DataType::Arr(ref d) => write!(f, "TODO write array"), //TODO
+            }
+        }
+    }
+
     struct ExtractedData {
         value: DataType,
         bytes_read: usize,
@@ -406,6 +424,21 @@ mod weechat {
             let _ = stream.shutdown(Shutdown::Both);
         }
 
+        fn handle_buffer_line_added(&self, msg_type: MessageType) {
+            let hdata = match msg_type {
+                MessageType::HData(h)   => h,
+                MessageType::StrData(_) => panic!("recvd strdata, expecting hdata"),
+            };
+
+            println!("\n");
+            for data in &hdata.data {
+                for (key, value) in data {
+                    println!("{}: {}", key, value);
+                }
+            };
+            println!("\n");
+        }
+
         fn run_loop(&self, stream: &TcpStream) -> Result<(), WeechatError> {
             try!(self.init_relay(stream));
 
@@ -415,7 +448,11 @@ mod weechat {
             try!(self.send_cmd(stream, cmd_str));
 
             loop {
-                let mgs = try!(self.recv_msg(stream));
+                let msg = try!(self.recv_msg(stream));
+                match msg.identifier.as_ref() {
+                    "_buffer_line_added" => self.handle_buffer_line_added(msg.data),
+                    _                    => println!("Unhandled event: {}", msg.identifier),
+                };
             }
         }
 
