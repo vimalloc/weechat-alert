@@ -546,15 +546,6 @@ mod weechat {
                 data_list.push(key_value_map);
             }
 
-            // Debug, see what the rest of the data looks like
-            /*
-            println!("Start byets:");
-            for byte in &data[start..end] {
-                print!("{} ", byte);
-            }
-            println!("\nByets finished!\n\n");
-            */
-
             MessageType::HData(HData {
                 data: data_list,
             })
