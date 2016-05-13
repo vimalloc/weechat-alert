@@ -4,6 +4,8 @@ use std::net::TcpStream;
 use std::io;
 use std::fmt;
 
+use ears::{Sound, AudioController};
+
 use errors::WeechatError;
 use message_header::MessageHeader;
 use message_body::{MessageData, MessageType};
@@ -143,8 +145,13 @@ impl Relay {
                 }
             }
         }
+
+        // TODO this is currently a blocking call, may make rapid messages
+        //      really annoying. This should be moved to a background thread
         if play_sound {
-            println!("Play sound here");
+            let mut snd = Sound::new("/home/lgbland/.weechat/noises/test.wav").unwrap();
+            snd.play();
+            while snd.is_playing() {}
         }
     }
 

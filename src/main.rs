@@ -1,3 +1,5 @@
+extern crate ears;
+
 mod conversions;
 mod message_data;
 mod errors;
