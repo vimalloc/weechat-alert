@@ -1,0 +1,6 @@
+[package]
+name = "weechat_alert"
+version = "0.1.0"
+authors = ["Landon GB <landogbland@gmail.com>"]
+
+[dependencies]
