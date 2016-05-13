@@ -1,6 +1,7 @@
 use std::io::prelude::*;
 use std::net::Shutdown;
 use std::net::TcpStream;
+use std::thread;
 use std::io;
 use std::fmt;
 
@@ -146,12 +147,17 @@ impl Relay {
             }
         }
 
-        // TODO this is currently a blocking call, may make rapid messages
-        //      really annoying. This should be moved to a background thread
+        // The play is a blocking call, and if we don't loop for is_playing it
+        // seems to go out of scope and get destroyed before it can actually play
+        // the sound. So we will spawn it in a new thread, so that we don't have
+        // to wait x seconds for the sound to play before processing another
+        // message.
         if play_sound {
-            let mut snd = Sound::new("/home/lgbland/.weechat/noises/test.wav").unwrap();
-            snd.play();
-            while snd.is_playing() {}
+            thread::spawn(move || {
+                let mut snd = Sound::new("/home/lgbland/.weechat/noises/test.wav").unwrap();
+                snd.play();
+                while snd.is_playing() {}
+            });
         }
     }
 
