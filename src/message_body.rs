@@ -22,20 +22,20 @@ impl MessageData {
     pub fn new(data: &[u8]) -> Result<MessageData, WeechatError> {
         // First thing encoded in the binary data is the identifier for
         // what this command is
-        let extracted = extract_string(data);
+        let extracted = try!(extract_string(data));
         let identifier = match extracted.value {
             DataType::Str(Some(s)) => s,
-            _                      => panic!("identifier should be non-null DataType::Str"),
+            _ => return Err(WeechatError::ParseError("Invalid identifier".to_string())),
         };
 
         // Next 3 bytes determin type of data in this command (hdata or str).
         // Parse the data type depending
         let start = extracted.bytes_read;
         let end = start + 3;
-        let msg_type = match from_utf8(&data[start..end]).unwrap() {
-            "str" => MessageData::binary_to_strdata(&data[end..]),
-            "hda" => MessageType::HData(HData::new(&data[end..])),
-            _     => panic!("Received unknown message type"),
+        let msg_type = match try!(from_utf8(&data[start..end])) {
+            "str" => try!(MessageData::binary_to_strdata(&data[end..])),
+            "hda" => MessageType::HData(try!(HData::new(&data[end..]))),
+            _ => return Err(WeechatError::ParseError("Unknown message type".to_string())),
         };
 
         // Return our struct
@@ -46,11 +46,11 @@ impl MessageData {
     }
 
     // TODO move you into new class as well, string_data
-    fn binary_to_strdata(data: &[u8]) -> MessageType {
-        let extracted = extract_string(data);
+    fn binary_to_strdata(data: &[u8]) -> Result<MessageType, WeechatError> {
+        let extracted = try!(extract_string(data));
         match extracted.value {
-            DataType::Str(s) => MessageType::StrData(s),
-            _                => panic!("Extracted is not DataType::Str"),
+            DataType::Str(s) => Ok(MessageType::StrData(s)),
+            _ => return Err(WeechatError::ParseError("Invalid datatype".to_string())),
         }
     }
 }

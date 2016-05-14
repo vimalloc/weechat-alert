@@ -1,5 +1,6 @@
 use std::io;
 use std::fmt;
+use std::str::Utf8Error;
 use std::error::Error;
 
 /// The error type used by this code base
@@ -7,7 +8,7 @@ use std::error::Error;
 pub enum WeechatError {
     Io(io::Error),  // Errors reading, writing, or connecting to socket
     BadPassword,    // Bad password for weechat init protocol
-    NoDataHandler(String),  // Received data we don't know how to deal with
+    ParseError(String),     // Recieved unparsable bytes from a weechat message
 }
 
 /// Convert io::Error to WeechatErrors
@@ -17,13 +18,20 @@ impl From<io::Error> for WeechatError {
     }
 }
 
+/// Convert io::Error to WeechatErrors
+impl From<Utf8Error> for WeechatError {
+    fn from(_: Utf8Error) -> WeechatError {
+        WeechatError::ParseError("Parsed invalid utf8 string".to_string())
+    }
+}
+
 /// Display WeechatErrors
 impl fmt::Display for WeechatError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             WeechatError::Io(ref err)          => err.fmt(f),
             WeechatError::BadPassword          => write!(f, "Invalid password"),
-            WeechatError::NoDataHandler(ref s) => write!(f, "No handler found for {}", s)
+            WeechatError::ParseError(ref s)    => write!(f, "Parse error: {}", s),
         }
     }
 }
@@ -34,7 +42,7 @@ impl Error for WeechatError {
         match *self {
             WeechatError::Io(ref err)      => err.description(),
             WeechatError::BadPassword      => "Invalid username or password",
-            WeechatError::NoDataHandler(_) => "No handler found"
+            WeechatError::ParseError(_)    => "Message parse error",
         }
     }
 }

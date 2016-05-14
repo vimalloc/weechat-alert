@@ -3,7 +3,6 @@ use std::net::Shutdown;
 use std::net::TcpStream;
 use std::thread;
 use std::io;
-use std::fmt;
 
 use ears::{Sound, AudioController};
 
@@ -55,7 +54,7 @@ impl Relay {
         // one is if compression is enabled or not
         let mut buffer = [0; HEADER_LENGTH];
         try!(stream.read_exact(&mut buffer));
-        let header = MessageHeader::new(&buffer);
+        let header = try!(MessageHeader::new(&buffer));
 
         // Now that we have the header, get the rest of the message.
         let mut data = vec![0; header.length];
@@ -74,29 +73,19 @@ impl Relay {
         let _ = self.send_cmd(stream, String::from("ping foo"));
 
         // UnexpectedEof means that a bad password was sent in. Any other
-        // error is something unexpected, so just bail out for now. If it
-        // is an IoError, pass it back to the caller so they can deal wtih
-        // it. If it's anything else, it should never happen, so it likely
-        // indicates a bug in our program. Panic it
+        // error is something unexpected.
         match self.recv_msg(stream) {
             Err(e) => match e {
-                WeechatError::BadPassword      => panic!("BadPassword should not exist here"),
-                WeechatError::NoDataHandler(_) => panic!("NoDataHandler should not exist here"),
-                WeechatError::Io(err)          => match err.kind() {
+                WeechatError::Io(err) => match err.kind() {
                     io::ErrorKind::UnexpectedEof => Err(WeechatError::BadPassword),
                     _                            => Err(WeechatError::Io(err)),
                 },
+                _                     => Err(e)
             },
             Ok(msg_data) => {
-                match msg_data.identifier.as_ref() {
-                    "_pong" => {},
-                    _       => panic!("Received something besides pong after init"),
-                }
-                match msg_data.data {
-                    MessageType::StrData(Some(ref s)) if s == "foo" => Ok(()),
-                    MessageType::StrData(Some(ref s))               => panic!("bad pong msg {}", s),
-                    MessageType::StrData(None)                      => panic!("Null pong msg"),
-                    MessageType::HData(_)                           => panic!("Pong received hdata"),
+                match (msg_data.identifier.as_ref(), msg_data.data) {
+                    ("_pong", MessageType::StrData(Some(ref s))) if s == "foo" => Ok(()),
+                    _  => Err(WeechatError::ParseError("Initial ping/pong failed".to_string())),
                 }
             }
         }
@@ -183,45 +172,5 @@ impl Relay {
         let result = self.run_loop(stream);
         self.close_relay(stream);
         result
-    }
-}
-
-
-
-
-/*
- * Functions for dealing with DataTypes in our handlers
- */
-
-/// A simple display for DataTypes (all of the data types that can be returned
-/// as a value in an HDAta object). This is primarily used for debugging
-impl fmt::Display for DataType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            DataType::Str(Some(ref s)) => write!(f, "\"{}\"", s),
-            DataType::Ptr(Some(ref p)) => write!(f, "0x{}", p),
-            DataType::Buf(Some(ref b)) => {
-                                              try!(write!(f, "[ "));
-                                              for byte in b {
-                                                  try!(write!(f, "{}, ", byte));
-                                              }
-                                              write!(f, "]")
-                                          }
-            DataType::Buf(None)  => write!(f, "null"),
-            DataType::Str(None)  => write!(f, "null"),
-            DataType::Ptr(None)  => write!(f, "0x0"),
-            DataType::Chr(ref c) => write!(f, "{} ('{}')", *c as u8, c),
-            DataType::Int(ref i) => write!(f, "{}", i),
-            DataType::Lon(ref l) => write!(f, "{}", l),
-            DataType::Tim(ref t) => write!(f, "{}", t),
-            DataType::Arr(ref d) => {
-                                        try!(write!(f, "[ "));
-                                        for i in d {
-                                            try!(i.fmt(f));
-                                            try!(write!(f, ", "));
-                                        }
-                                        write!(f, "]")
-                                    },
-        }
     }
 }

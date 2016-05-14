@@ -1,9 +1,13 @@
 use std::mem::transmute;
 
+use errors::WeechatError;
+
 /// Converts a 4 byte array slice into a 32 bit signed integer. The bytes
 /// are assumed to be encoded in a big-endian format
-pub fn bytes_to_i32(byte_array: &[u8]) -> i32 {
-    assert!(byte_array.len() == 4, "Array isn't 4 bytes, cannot cast to int");
+pub fn bytes_to_i32(byte_array: &[u8]) -> Result<i32, WeechatError> {
+    if byte_array.len() != 4 {
+        return Err(WeechatError::ParseError("Cannot cast bytes to i32".to_string()));
+    }
 
     // Re-arrange bytes from big to little-endian (so we can transmute them)
     let mut bytes: [u8; 4] = [0, 0, 0, 0];
@@ -14,6 +18,6 @@ pub fn bytes_to_i32(byte_array: &[u8]) -> i32 {
 
     // Do the casting
     unsafe {
-        transmute::<[u8; 4], i32>(bytes)
+        Ok(transmute::<[u8; 4], i32>(bytes))
     }
 }

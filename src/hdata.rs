@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::from_utf8;
 
 use conversions::bytes_to_i32;
 use message_data::{DataType, extract_char, extract_time, extract_int, extract_string,
@@ -23,28 +22,28 @@ impl HData {
     ///
     /// You can see the protocol for encoding an hdata object here:
     /// https://weechat.org/files/doc/devel/weechat_relay_protocol.en.html#object_hdata
-    pub fn new(data: &[u8]) -> HData {
+    pub fn new(data: &[u8]) -> Result<HData, WeechatError> {
         let mut cur_pos = 0; // Rolling counter of where we are in the byte array
         let mut data_list: Vec<HashMap<String, DataType>> = Vec::new();  // resulting hdata
 
         // Parse out paths
-        let extracted = extract_string(&data[cur_pos..]);
+        let extracted = try!(extract_string(&data[cur_pos..]));
         cur_pos += extracted.bytes_read;
         let paths: Vec<String> = match extracted.value {
             DataType::Str(Some(ref s)) => s.split(',').map(|s| String::from(s)).collect(),
-            _                          => panic!("Paths should be non-null DataType::Str"),
+            _ => return Err(WeechatError::ParseError("Invalid Path type".to_string())),
         };
 
         // Parse out key names and types
-        let extracted = extract_string(&data[cur_pos..]);
+        let extracted = try!(extract_string(&data[cur_pos..]));
         cur_pos += extracted.bytes_read;
         let keys: Vec<String> = match extracted.value {
             DataType::Str(Some(ref s)) => s.split(',').map(|s| String::from(s)).collect(),
-            _                          => panic!("Keys should be non-null DataType::Str"),
+            _ => return Err(WeechatError::ParseError("Invalid key type".to_string())),
         };
 
         // Number of items in this hdata
-        let num_hdata_items = bytes_to_i32(&data[cur_pos..cur_pos+4]);
+        let num_hdata_items = try!(bytes_to_i32(&data[cur_pos..cur_pos+4]));
         cur_pos += 4;
 
         // Get the data for each item
@@ -54,7 +53,7 @@ impl HData {
 
             // Pull out path pointers
             for path_name in &paths {
-                let extracted = extract_pointer(&data[cur_pos..]);
+                let extracted = try!(extract_pointer(&data[cur_pos..]));
                 cur_pos += extracted.bytes_read;
                 key_value_map.insert(path_name.clone(), extracted.value);
             }
@@ -65,15 +64,15 @@ impl HData {
                 let key_name = key_parse[0];
                 let key_type = key_parse[1];
                 let extracted = match key_type {
-                    "chr" => extract_char(&data[cur_pos..]),
-                    "int" => extract_int(&data[cur_pos..]),
-                    "lon" => extract_long(&data[cur_pos..]),
-                    "str" => extract_string(&data[cur_pos..]),
-                    "buf" => extract_buffer(&data[cur_pos..]),
-                    "ptr" => extract_pointer(&data[cur_pos..]),
-                    "tim" => extract_time(&data[cur_pos..]),
-                    "arr" => extract_array(&data[cur_pos..]),
-                    _     => panic!("Received invalid key type"),
+                    "chr" => try!(extract_char(&data[cur_pos..])),
+                    "int" => try!(extract_int(&data[cur_pos..])),
+                    "lon" => try!(extract_long(&data[cur_pos..])),
+                    "str" => try!(extract_string(&data[cur_pos..])),
+                    "buf" => try!(extract_buffer(&data[cur_pos..])),
+                    "ptr" => try!(extract_pointer(&data[cur_pos..])),
+                    "tim" => try!(extract_time(&data[cur_pos..])),
+                    "arr" => try!(extract_array(&data[cur_pos..])),
+                    _     => return Err(WeechatError::ParseError("Bad type for key".to_string())),
                 };
                 cur_pos += extracted.bytes_read;
                 key_value_map.insert(String::from(key_name), extracted.value);
@@ -83,8 +82,8 @@ impl HData {
             data_list.push(key_value_map);
         }
 
-        HData {
+        Ok(HData {
             data: data_list,
-        }
+        })
     }
 }
