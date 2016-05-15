@@ -3,6 +3,7 @@ use std::fmt;
 
 use conversions::bytes_to_i32;
 use errors::WeechatError;
+use errors::WeechatError::ParseError;
 
 /// All possible types of data that can be returned from a weechat message
 pub enum DataType {
@@ -67,7 +68,7 @@ pub struct ExtractedData {
 pub fn extract_string(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     // Sanity checks
     if data.len() < 4 {
-        return Err(WeechatError::ParseError("Not enough bytes to parse string".to_string()));
+        return Err(ParseError("Not enough bytes to parse string".to_string()));
     }
 
     // Get the start and end limits for this string
@@ -77,7 +78,7 @@ pub fn extract_string(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     start = end;
     end += str_size as usize;
     if data.len() < end {
-        return Err(WeechatError::ParseError("String larger then availiable bytes".to_string()));
+        return Err(ParseError("String larger then availiable bytes".to_string()));
     }
 
     // Pull out and return the string
@@ -102,14 +103,14 @@ pub fn extract_string(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 ///       value of 0
 pub fn extract_pointer(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     if data.len() < 2 {
-        return Err(WeechatError::ParseError("Not enough bytes to parse pointer".to_string()));
+        return Err(ParseError("Not enough bytes to parse pointer".to_string()));
     }
 
     let ptr_size = data[0] as i8;
     let start = 1;
     let end = start + ptr_size as usize;
     if data.len() < end {
-        return Err(WeechatError::ParseError("Pointer larger then availiable bytes".to_string()));
+        return Err(ParseError("Pointer larger then availiable bytes".to_string()));
     }
 
     // Pull out pointer, check if it's null
@@ -124,7 +125,7 @@ pub fn extract_pointer(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 /// Given a byte array which contains an encoded char, pull the char out.
 pub fn extract_char(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     if data.len() < 1 {
-        return Err(WeechatError::ParseError("Not enough bytes to parse char".to_string()));
+        return Err(ParseError("Not enough bytes to parse char".to_string()));
     }
     Ok(ExtractedData {
         value: DataType::Chr(data[0] as char),
@@ -135,7 +136,7 @@ pub fn extract_char(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 /// Given a byte array which contains an encoded integer, pull the int out.
 pub fn extract_int(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     if data.len() < 4 {
-        return Err(WeechatError::ParseError("Not enough bytes to parse int".to_string()));
+        return Err(ParseError("Not enough bytes to parse int".to_string()));
     }
     Ok(ExtractedData {
         value: DataType::Int(try!(bytes_to_i32(&data[0..4]))),
@@ -152,18 +153,18 @@ pub fn extract_int(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 /// bytes 1 - ?: A string representing the long (ex "1234567890")
 pub fn extract_long(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     if data.len() < 2 {
-        return Err(WeechatError::ParseError("Not enough bytes to parse long".to_string()));
+        return Err(ParseError("Not enough bytes to parse long".to_string()));
     }
     let long_size = data[0] as i8;
     let start = 1;
     let end = start + long_size as usize;
     if data.len() < end {
-        return Err(WeechatError::ParseError("Long larger then available bytes".to_string()));
+        return Err(ParseError("Long larger then available bytes".to_string()));
     }
 
     let long_str = try!(from_utf8(&data[start..end]));
     let long: i64 = match long_str.parse() {
-        Err(_) => return Err(WeechatError::ParseError("String to long conversion failed".to_string())),
+        Err(_) => return Err(ParseError("String to long conversion failed".to_string())),
         Ok(l)  => l,
     };
     Ok(ExtractedData {
@@ -183,7 +184,7 @@ pub fn extract_long(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 pub fn extract_buffer(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     // Sanity checks
     if data.len() < 4 {
-        return Err(WeechatError::ParseError("Not enough bytes to parse buffer".to_string()));
+        return Err(ParseError("Not enough bytes to parse buffer".to_string()));
     }
 
     // Get the start and end limits for this string
@@ -193,7 +194,7 @@ pub fn extract_buffer(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     start = end;
     end += buf_size as usize;
     if data.len() >= end {
-        return Err(WeechatError::ParseError("Buffer larger then availiable bytes".to_string()));
+        return Err(ParseError("Buffer larger then availiable bytes".to_string()));
     }
 
     // Pull out and return the string
@@ -221,18 +222,18 @@ pub fn extract_buffer(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 /// bytes 1 - ?: A string representing the timestamp (ex "1321993456")
 pub fn extract_time(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     if data.len() < 2 {
-        return Err(WeechatError::ParseError("Not enough bytes parse time".to_string()));
+        return Err(ParseError("Not enough bytes parse time".to_string()));
     }
     let time_size = data[0] as i8;
     let start = 1;
     let end = start + time_size as usize;
     if data.len() < end {
-        return Err(WeechatError::ParseError("Not enough bytes to extract time".to_string()));
+        return Err(ParseError("Not enough bytes to extract time".to_string()));
     }
 
     let time_str = try!(from_utf8(&data[start..end]));
     let timestamp: i32 = match time_str.parse() {
-        Err(_) => return Err(WeechatError::ParseError("String to i32 conversion failed".to_string())),
+        Err(_) => return Err(ParseError("String to i32 conversion failed".to_string())),
         Ok(ts) => ts,
     };
     Ok(ExtractedData {
@@ -256,7 +257,7 @@ pub fn extract_time(data: &[u8]) -> Result<ExtractedData, WeechatError> {
 ///       Option.
 pub fn extract_array(data: &[u8]) -> Result<ExtractedData, WeechatError> {
     if data.len() < 7 {
-        return Err(WeechatError::ParseError("Not enough bytes to have an array".to_string()));
+        return Err(ParseError("Not enough bytes to have an array".to_string()));
     }
     let arr_type = try!(from_utf8(&data[0..3]));
     let num_elements = try!(bytes_to_i32(&data[3..7]));
@@ -273,7 +274,7 @@ pub fn extract_array(data: &[u8]) -> Result<ExtractedData, WeechatError> {
             "ptr" => try!(extract_pointer(&data[cur_pos..])),
             "tim" => try!(extract_time(&data[cur_pos..])),
             "arr" => try!(extract_array(&data[cur_pos..])),
-            _     => return Err(WeechatError::ParseError("Bad type for array".to_string())),
+            _     => return Err(ParseError("Bad type for array".to_string())),
         };
         cur_pos += extracted.bytes_read;
         array.push(extracted.value);

@@ -4,6 +4,7 @@ use conversions::bytes_to_i32;
 use message_data::{DataType, extract_char, extract_time, extract_int, extract_string,
                    extract_pointer, extract_long, extract_buffer, extract_array};
 use errors::WeechatError;
+use errors::WeechatError::ParseError;
 
 
 /// A list of key/value mappings of data received from relay. This data conststs
@@ -31,7 +32,7 @@ impl HData {
         cur_pos += extracted.bytes_read;
         let paths: Vec<String> = match extracted.value {
             DataType::Str(Some(ref s)) => s.split(',').map(|s| String::from(s)).collect(),
-            _ => return Err(WeechatError::ParseError("Invalid Path type".to_string())),
+            _ => return Err(ParseError("Invalid Path type".to_string())),
         };
 
         // Parse out key names and types
@@ -39,7 +40,7 @@ impl HData {
         cur_pos += extracted.bytes_read;
         let keys: Vec<String> = match extracted.value {
             DataType::Str(Some(ref s)) => s.split(',').map(|s| String::from(s)).collect(),
-            _ => return Err(WeechatError::ParseError("Invalid key type".to_string())),
+            _ => return Err(ParseError("Invalid key type".to_string())),
         };
 
         // Number of items in this hdata
@@ -72,7 +73,7 @@ impl HData {
                     "ptr" => try!(extract_pointer(&data[cur_pos..])),
                     "tim" => try!(extract_time(&data[cur_pos..])),
                     "arr" => try!(extract_array(&data[cur_pos..])),
-                    _     => return Err(WeechatError::ParseError("Bad type for key".to_string())),
+                    _     => return Err(ParseError("Bad type for key".to_string())),
                 };
                 cur_pos += extracted.bytes_read;
                 key_value_map.insert(String::from(key_name), extracted.value);
