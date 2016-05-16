@@ -1,0 +1,4 @@
+[relay]
+server = "<weechat_server>"
+port = <relay_port>
+password = "<password>"
