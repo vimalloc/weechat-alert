@@ -70,7 +70,7 @@ impl Relay {
         // result in no bytes being read from the socket (UnexpectedEof)
         let cmd_str = format!("init password={},compression=off", self.password);
         try!(self.send_cmd(stream, cmd_str));
-        let _ = self.send_cmd(stream, String::from("ping"));
+        try!(self.send_cmd(stream, "ping".to_string()));
 
         // UnexpectedEof means that a bad password was sent in. Any other
         // error is something unexpected.
@@ -89,7 +89,7 @@ impl Relay {
     /// Tell weechat we are done, and close our socket. TcpStream can no
     /// longer be used after a call to close_relay. Any errors here are ignored
     fn close_relay(&self, mut stream: &TcpStream) {
-        let cmd_str = String::from("quit");
+        let cmd_str = "quit".to_string();
         let _ = self.send_cmd(stream, cmd_str);
         let _ = stream.flush();
         let _ = stream.shutdown(Shutdown::Both);
@@ -150,7 +150,7 @@ impl Relay {
 
         // We only need to sync buffers to get highlights. We don't need
         // nicklist or anything like that
-        let cmd_str = String::from("sync * buffer");
+        let cmd_str = "sync * buffer".to_string();
         try!(self.send_cmd(stream, cmd_str));
 
         loop {
