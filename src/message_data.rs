@@ -6,7 +6,10 @@ use errors::WeechatError;
 use errors::WeechatError::ParseError;
 
 /// All possible types of data that can be returned from a weechat message
+/// See: https://weechat.org/files/doc/devel/weechat_relay_protocol.en.html#objects
+#[derive(Debug)]
 pub enum DataType {
+    Arr(Vec<DataType>),
     Buf(Option<Vec<u8>>),
     Chr(char),
     Int(i32),
@@ -14,7 +17,84 @@ pub enum DataType {
     Ptr(Option<String>),
     Str(Option<String>),
     Tim(i32),
-    Arr(Vec<DataType>),
+}
+
+
+impl DataType {
+    /// Returns this data as a buffer if it is a buffer.
+    pub fn as_buffer(&self) -> Result<Option<&[u8]>, WeechatError> {
+        match *self {
+            DataType::Buf(Some(ref vec)) => Ok(Some(vec.as_slice())),
+            DataType::Buf(None)          => Ok(None),
+            _                            => Err(ParseError("Item is not a buffer".to_string()))
+        }
+    }
+
+    /// Returns this data as a buffer if it is a non-null buffer. Note: null != empty
+    pub fn as_not_null_buffer(&self) -> Result<&[u8], WeechatError> {
+        try!(self.as_buffer().map(|b| b.ok_or(ParseError("Buffer is null".to_string()))))
+    }
+
+    /// Returns this data as a character if it is a character.
+    pub fn as_character(&self) -> Result<char, WeechatError> {
+        match *self {
+            DataType::Chr(c) => Ok(c),
+            _                => Err(ParseError("Item is not a character".to_string()))
+        }
+    }
+
+    /// Returns this data as a integer if it is a integer.
+    pub fn as_integer(&self) -> Result<i32, WeechatError> {
+        match *self {
+            DataType::Int(i) => Ok(i),
+            _                => Err(ParseError("Item is not a integer".to_string()))
+        }
+    }
+
+    /// Returns this data as a long if it is a long.
+    pub fn as_long(&self) -> Result<i64, WeechatError> {
+        match *self {
+            DataType::Lon(l) => Ok(l),
+            _                => Err(ParseError("Item is not a long".to_string()))
+        }
+    }
+
+    /// Returns this data as a pointer if it is a pointer (pointer is encoded as a str).
+    pub fn as_pointer(&self) -> Result<Option<&str>, WeechatError> {
+        match *self {
+            DataType::Ptr(Some(ref p)) => Ok(Some(p)),
+            DataType::Ptr(None)        => Ok(None),
+            _                          => Err(ParseError("Item is not a buffer".to_string()))
+        }
+    }
+
+    /// Returns this data as a pointer if it is a non-null pointer (pointer is
+    /// encoded as a str). Note: null != empty
+    pub fn as_not_null_pointer(&self) -> Result<&str, WeechatError> {
+        try!(self.as_pointer().map(|p| p.ok_or(ParseError("pointer is null".to_string()))))
+    }
+
+    /// Returns this data as a string if it is a string.
+    pub fn as_str(&self) -> Result<Option<&str>, WeechatError> {
+        match *self {
+            DataType::Str(Some(ref s)) => Ok(Some(s)),
+            DataType::Str(None)        => Ok(None),
+            _                          => Err(ParseError("Item is not a buffer".to_string()))
+        }
+    }
+
+    /// Returns this data as a string if it is a non-null string. Note: null != empty
+    pub fn as_not_null_str(&self) -> Result<&str, WeechatError> {
+        try!(self.as_str().map(|s| s.ok_or(ParseError("String is null".to_string()))))
+    }
+
+    /// Returns this data as an epoch time if it is a time (encdoed as an i32)
+    pub fn as_time(&self) -> Result<i32, WeechatError> {
+        match *self {
+            DataType::Tim(t) => Ok(t),
+            _                => Err(ParseError("Item is not a time".to_string()))
+        }
+    }
 }
 
 /// A simple display for DataTypes (all of the data types that can be returned
