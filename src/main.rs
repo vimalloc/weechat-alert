@@ -8,13 +8,12 @@ use std::process::exit;
 extern crate ears;
 extern crate toml;
 
-mod conversions;
-mod message_data;
+mod message;
 mod errors;
 mod hdata;
-mod message_body;
-mod message_header;
+mod parse;
 mod relay;
+mod strdata;
 
 use relay::Relay;
 

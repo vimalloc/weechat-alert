@@ -7,9 +7,8 @@ use std::io;
 use ears::{Sound, AudioController};
 
 use errors::WeechatError;
-use message_header::MessageHeader;
-use message_body::{MessageData, MessageType};
-use message_data::DataType;
+use hdata::HData;
+use message;
 
 // TODO put this in just one place, or hand off actually reading data from the
 //      socket to message header
@@ -49,17 +48,17 @@ impl Relay {
         Ok(())
     }
 
-    fn recv_msg(&self, mut stream: &TcpStream) -> Result<MessageData, WeechatError> {
+    fn recv_msg(&self, mut stream: &TcpStream) -> Result<message::Message, WeechatError> {
         // header is first 5 bytes. The first 4 are the length, and the last
         // one is if compression is enabled or not
         let mut buffer = [0; HEADER_LENGTH];
         try!(stream.read_exact(&mut buffer));
-        let header = try!(MessageHeader::new(&buffer));
+        let header = try!(message::Header::new(&buffer));
 
         // Now that we have the header, get the rest of the message.
         let mut data = vec![0; header.length];
         try!(stream.read_exact(data.as_mut_slice()));
-        MessageData::new(data.as_slice())
+        message::Message::new(data.as_slice())
     }
 
     fn init_relay(&self, stream: &TcpStream) -> Result<(), WeechatError> {
@@ -95,35 +94,20 @@ impl Relay {
         let _ = stream.shutdown(Shutdown::Both);
     }
 
-    fn handle_buffer_line_added(&self, msg_type: MessageType) {
-        let hdata = match msg_type {
-            MessageType::HData(h)   => h,
-            MessageType::StrData(_) => panic!("recvd strdata, expecting hdata"),
-        };
-
+    fn buffer_line_added(&self, hdata: &HData) {
         // Check if this line has a highlight or a private message that we
         // should notify on
         let mut play_sound = false;
-        for data in hdata.data {
-            let highlight = match data["highlight"] {
-                DataType::Chr(c) => c,
-                _                => panic!("Highlight should be a chr"),
-            };
+        for data in &hdata.data {
+            let highlight = data["highlight"].as_character().unwrap();
             if highlight == (1 as char) {
                 play_sound = true;
                 break;
             }
 
-            let tags_array = match data["tags_array"] {
-                DataType::Arr(ref array) => array,
-                _                        => panic!("tags_array should be type array"),
-            };
+            let tags_array = data["tags_array"].as_array().unwrap();
             for element in tags_array {
-                let tag_str = match element {
-                    &DataType::Str(Some(ref s)) => s.as_ref(),
-                    &DataType::Str(None)        => "",
-                    _                 => panic!("array should be type str"),
-                };
+                let tag_str = element.as_not_null_str().unwrap();
                 if tag_str == "notify_private" {
                     play_sound = true;
                     break
@@ -156,7 +140,7 @@ impl Relay {
         loop {
             let msg = try!(self.recv_msg(stream));
             match msg.identifier.as_ref() {
-                "_buffer_line_added" => self.handle_buffer_line_added(msg.data),
+                "_buffer_line_added" => self.buffer_line_added(try!(msg.as_hdata())),
                 _                    => (),
             };
         }

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use message_data::{DataType, extract_char, extract_time, extract_int, extract_string,
-                   extract_pointer, extract_long, extract_buffer, extract_array};
 use errors::WeechatError;
 use errors::WeechatError::ParseError;
+use message;
+use parse::Parse;
 
 
 /// A list of key/value mappings of data received from relay. This data conststs
@@ -11,13 +11,15 @@ use errors::WeechatError::ParseError;
 /// https://weechat.org/files/doc/devel/weechat_relay_protocol.en.html
 #[derive(Debug)]
 pub struct HData {
-    pub data: Vec<HashMap<String, DataType>>
+    pub data: Vec<HashMap<String, message::Object>>
 }
 
 
 impl HData {
-    /// Takes an array of bytes where the HData starts and returns an HData
-    /// object. This should not include the leading "hda" string that identifies
+    /// Takes an array of bytes that encode an HData and returns a parsed HData
+    /// object.
+    ///
+    /// This should not include the leading "hda" string that identifies
     /// the object as an HData, ie the bytes should start right after the
     /// identifying "hda" string.
     ///
@@ -27,31 +29,31 @@ impl HData {
         let mut cur_pos = 0; // Rolling counter of where we are in the byte array
 
         // Parse out paths
-        let extracted = try!(extract_string(&data[cur_pos..]));
-        let paths = try!(extracted.value.as_not_null_str());
+        let extracted = try!(Parse::string(&data[cur_pos..]));
+        let paths = try!(extracted.object.as_not_null_str());
         let paths: Vec<String> = paths.split(',').map(|s| s.to_string()).collect();
         cur_pos += extracted.bytes_read;
 
         // Parse out key names and types
-        let extracted = try!(extract_string(&data[cur_pos..]));
-        let keys = try!(extracted.value.as_not_null_str());
+        let extracted = try!(Parse::string(&data[cur_pos..]));
+        let keys = try!(extracted.object.as_not_null_str());
         let keys: Vec<String> = keys.split(',').map(|s| s.to_string()).collect();
         cur_pos += extracted.bytes_read;
 
         // Number of items in this hdata
-        let extracted = try!(extract_int(&data[cur_pos..]));
-        let num_hdata_items = try!(extracted.value.as_integer());
+        let extracted = try!(Parse::integer(&data[cur_pos..]));
+        let num_hdata_items = try!(extracted.object.as_integer());
         cur_pos += extracted.bytes_read;
 
         // Store pointers and keys for each item
-        let mut data_list: Vec<HashMap<String, DataType>> = Vec::new();
+        let mut data_list = Vec::new();
         for _ in 0..num_hdata_items {
-            let mut key_value_map: HashMap<String, DataType> = HashMap::new();
+            let mut key_value_map = HashMap::new();
 
             // Pull out path pointers
             for path_name in &paths {
-                let extracted = try!(extract_pointer(&data[cur_pos..]));
-                key_value_map.insert(path_name.clone(), extracted.value);
+                let extracted = try!(Parse::pointer(&data[cur_pos..]));
+                key_value_map.insert(path_name.clone(), extracted.object);
                 cur_pos += extracted.bytes_read;
             }
 
@@ -61,17 +63,17 @@ impl HData {
                 let key_name = key_parse[0];
                 let key_type = key_parse[1];
                 let extracted = match key_type {
-                    "arr" => try!(extract_array(&data[cur_pos..])),
-                    "buf" => try!(extract_buffer(&data[cur_pos..])),
-                    "chr" => try!(extract_char(&data[cur_pos..])),
-                    "int" => try!(extract_int(&data[cur_pos..])),
-                    "lon" => try!(extract_long(&data[cur_pos..])),
-                    "ptr" => try!(extract_pointer(&data[cur_pos..])),
-                    "str" => try!(extract_string(&data[cur_pos..])),
-                    "tim" => try!(extract_time(&data[cur_pos..])),
+                    "arr" => try!(Parse::array(&data[cur_pos..])),
+                    "buf" => try!(Parse::buffer(&data[cur_pos..])),
+                    "chr" => try!(Parse::character(&data[cur_pos..])),
+                    "int" => try!(Parse::integer(&data[cur_pos..])),
+                    "lon" => try!(Parse::long(&data[cur_pos..])),
+                    "ptr" => try!(Parse::pointer(&data[cur_pos..])),
+                    "str" => try!(Parse::string(&data[cur_pos..])),
+                    "tim" => try!(Parse::time(&data[cur_pos..])),
                     _     => return Err(ParseError("Bad type for key".to_string())),
                 };
-                key_value_map.insert(String::from(key_name), extracted.value);
+                key_value_map.insert(String::from(key_name), extracted.object);
                 cur_pos += extracted.bytes_read;
             }
 
