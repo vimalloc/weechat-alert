@@ -70,7 +70,7 @@ impl Relay {
         // result in no bytes being read from the socket (UnexpectedEof)
         let cmd_str = format!("init password={},compression=off", self.password);
         try!(self.send_cmd(stream, cmd_str));
-        let _ = self.send_cmd(stream, String::from("ping foo"));
+        let _ = self.send_cmd(stream, String::from("ping"));
 
         // UnexpectedEof means that a bad password was sent in. Any other
         // error is something unexpected.
@@ -82,12 +82,7 @@ impl Relay {
                 },
                 _                     => Err(e)
             },
-            Ok(msg_data) => {
-                match (msg_data.identifier.as_ref(), msg_data.data) {
-                    ("_pong", MessageType::StrData(Some(ref s))) if s == "foo" => Ok(()),
-                    _  => Err(WeechatError::ParseError("Initial ping/pong failed".to_string())),
-                }
-            }
+            Ok(_) =>  Ok(())
         }
     }
 
