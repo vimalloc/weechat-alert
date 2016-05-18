@@ -14,8 +14,8 @@ impl StrData {
     /// the object as a StrData, ie the bytes should start right after the
     /// identifying "str" string.
     pub fn new(bytes: &[u8]) -> Result<StrData, WeechatError> {
-        let data = try!(Parse::string(bytes));
-        let s = try!(data.object.as_str()).map(|s| s.to_string());
+        let parsed = try!(Parse::string(bytes));
+        let s = try!(parsed.object.as_str()).map(|s| s.to_string());
         Ok(StrData{
             data: s
         })

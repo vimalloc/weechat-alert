@@ -10,8 +10,7 @@ use errors::WeechatError;
 use hdata::HData;
 use message;
 
-// TODO put this in just one place, or hand off actually reading data from the
-//      socket to message header
+// number of bytes that make up the message header
 const HEADER_LENGTH: usize = 5;
 
 /// Holds relay connection information

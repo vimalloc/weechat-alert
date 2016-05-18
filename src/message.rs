@@ -8,10 +8,6 @@ use parse::Parse;
 use strdata::StrData;
 
 
-// TODO decide if general message function, which takes a socket and returns a message object thing.
-
-// TODO rename data to something else, use data as the named for Parse objects? Maybe?
-
 /// Holds header information for data received from relay
 #[derive(Debug)]
 pub struct Header {
@@ -31,19 +27,19 @@ impl Header {
         let mut cur_pos = 0; // Rolling counter of where we are in the byte array
 
         // Grab the message length
-        let extracted = try!(Parse::integer(bytes));
-        let total_msg_length = try!(extracted.object.as_integer());
-        cur_pos += extracted.bytes_read;
+        let parsed = try!(Parse::integer(bytes));
+        let total_msg_length = try!(parsed.object.as_integer());
+        cur_pos += parsed.bytes_read;
 
         // Grab the compression character
-        let extracted = try!(Parse::character(&bytes[cur_pos..]));
-        let compression = try!(extracted.object.as_character());
+        let parsed = try!(Parse::character(&bytes[cur_pos..]));
+        let compression = try!(parsed.object.as_character());
         let compression = match compression as u8 {
             0 => false,
             1 => true,
             _ => return Err(WeechatError::ParseError("Bad compression byte".to_string())),
         };
-        cur_pos += extracted.bytes_read;
+        cur_pos += parsed.bytes_read;
 
         // Headers has length of full message, we need to chop off the
         // legth of the header as we have already read that from the socket
@@ -64,7 +60,7 @@ pub struct Message {
     /// https://weechat.org/files/doc/devel/weechat_relay_protocol.en.html#message_identifier
     pub identifier: String,
     /// Data contained in this message
-    data: Type,
+    data_type: Type,
 }
 
 /// Possible types of messages received from relay (almost every message, excluding pongs,
@@ -78,11 +74,11 @@ pub enum Type {
 impl Message {
     pub fn new(bytes: &[u8]) -> Result<Message, WeechatError> {
         // First thing encoded is the identifier for what this command is
-        let extracted = try!(Parse::string(bytes));
-        let identifier = try!(extracted.object.as_not_null_str());
+        let parsed = try!(Parse::string(bytes));
+        let identifier = try!(parsed.object.as_not_null_str());
 
         // Next 3 bytes determin type of data in this command (hdata or str).
-        let start = extracted.bytes_read;
+        let start = parsed.bytes_read;
         let end = start + 3;
         let msg_type = match try!(from_utf8(&bytes[start..end])) {
             "str" => Type::StrData(try!(StrData::new(&bytes[end..]))),
@@ -93,13 +89,13 @@ impl Message {
         // Return our struct
         Ok(Message {
             identifier: String::from(identifier),
-            data: msg_type,
+            data_type: msg_type,
         })
     }
 
     /// Returns the contents of this message as an HData (if it is an HData)
     pub fn as_hdata(&self) -> Result<&HData, WeechatError> {
-        match self.data {
+        match self.data_type {
             Type::HData(ref hdata) => Ok(hdata),
             _                      => Err(ParseError("Message is not an hdata".to_string())),
         }
@@ -107,7 +103,7 @@ impl Message {
 
     /// Returns the contents of this message as a StrData (if it is a StrData)
     pub fn as_strdata(&self) -> Result<&StrData, WeechatError> {
-        match self.data {
+        match self.data_type {
             Type::StrData(ref strdata) => Ok(strdata),
             _                          => Err(ParseError("Message is not a strdata".to_string())),
         }

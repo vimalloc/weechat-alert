@@ -5,9 +5,11 @@ use message::Object;
 use errors::WeechatError;
 use errors::WeechatError::ParseError;
 
-/// Extract binary data into weechat message objects.
+/// Parses binary data into weechat message objects.
 pub struct Parse {
+    /// Object type of this data
     pub object: Object,
+    /// Number of bytes read from the byte array to parse this data
     pub bytes_read: usize,
 }
 
@@ -25,29 +27,29 @@ impl Parse {
     ///       iterating over the array, in this case we are encoding a NULL
     ///       array as an empty array, instead of having an Array be of type
     ///       Option.
-    pub fn array(data: &[u8]) -> Result<Parse, WeechatError> {
-        if data.len() < 7 {
+    pub fn array(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 7 {
             return Err(ParseError("Not enough bytes to have an array".to_string()));
         }
-        let arr_type = try!(from_utf8(&data[0..3]));
-        let num_elements = try!(bytes_to_i32(&data[3..7]));
+        let arr_type = try!(from_utf8(&bytes[0..3]));
+        let num_elements = try!(bytes_to_i32(&bytes[3..7]));
         let mut array: Vec<Object> = Vec::new();
 
-        let mut cur_pos = 7;  // Start position for data array elements
+        let mut cur_pos = 7;  // Start position for bytes array elements
         for _ in 0..num_elements {
-            let extracted = match arr_type {
-                "chr" => try!(Parse::character(&data[cur_pos..])),
-                "int" => try!(Parse::integer(&data[cur_pos..])),
-                "lon" => try!(Parse::long(&data[cur_pos..])),
-                "str" => try!(Parse::string(&data[cur_pos..])),
-                "buf" => try!(Parse::buffer(&data[cur_pos..])),
-                "ptr" => try!(Parse::pointer(&data[cur_pos..])),
-                "tim" => try!(Parse::time(&data[cur_pos..])),
-                "arr" => try!(Parse::array(&data[cur_pos..])),
+            let parsed = match arr_type {
+                "chr" => try!(Parse::character(&bytes[cur_pos..])),
+                "int" => try!(Parse::integer(&bytes[cur_pos..])),
+                "lon" => try!(Parse::long(&bytes[cur_pos..])),
+                "str" => try!(Parse::string(&bytes[cur_pos..])),
+                "buf" => try!(Parse::buffer(&bytes[cur_pos..])),
+                "ptr" => try!(Parse::pointer(&bytes[cur_pos..])),
+                "tim" => try!(Parse::time(&bytes[cur_pos..])),
+                "arr" => try!(Parse::array(&bytes[cur_pos..])),
                 _     => return Err(ParseError("Bad type for array".to_string())),
             };
-            cur_pos += extracted.bytes_read;
-            array.push(extracted.object);
+            cur_pos += parsed.bytes_read;
+            array.push(parsed.object);
         }
 
         Ok(Parse {
@@ -64,19 +66,19 @@ impl Parse {
     ///
     /// Note: An empty buffer is valid, in this cass length will be 0. A NULL
     ///       buffer is also valid, it has length of -1.
-    pub fn buffer(data: &[u8]) -> Result<Parse, WeechatError> {
+    pub fn buffer(bytes: &[u8]) -> Result<Parse, WeechatError> {
         // Sanity checks
-        if data.len() < 4 {
+        if bytes.len() < 4 {
             return Err(ParseError("Not enough bytes to parse buffer".to_string()));
         }
 
         // Get the start and end limits for this string
         let mut start = 0;
         let mut end = 4;
-        let buf_size = try!(bytes_to_i32(&data[start..end]));
+        let buf_size = try!(bytes_to_i32(&bytes[start..end]));
         start = end;
         end += buf_size as usize;
-        if data.len() >= end {
+        if bytes.len() >= end {
             return Err(ParseError("Buffer larger then availiable bytes".to_string()));
         }
 
@@ -86,7 +88,7 @@ impl Parse {
             0  => Some(Vec::new()),  // Empty buffer
             _  => {
                 let mut buf = Vec::new();
-                buf.clone_from_slice(&data[start..end]);
+                buf.clone_from_slice(&bytes[start..end]);
                 Some(buf)
             }
         };
@@ -97,23 +99,23 @@ impl Parse {
     }
 
     /// Given a byte array which contains an encoded char, pull the char out.
-    pub fn character(data: &[u8]) -> Result<Parse, WeechatError> {
-        if data.len() < 1 {
+    pub fn character(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 1 {
             return Err(ParseError("Not enough bytes to parse character".to_string()));
         }
         Ok(Parse {
-            object: Object::Chr(data[0] as char),
+            object: Object::Chr(bytes[0] as char),
             bytes_read: 1,
         })
     }
 
     /// Given a byte array which contains an encoded integer, pull the int out.
-    pub fn integer(data: &[u8]) -> Result<Parse, WeechatError> {
-        if data.len() < 4 {
+    pub fn integer(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 4 {
             return Err(ParseError("Not enough bytes to parse int".to_string()));
         }
         Ok(Parse {
-            object: Object::Int(try!(bytes_to_i32(&data[0..4]))),
+            object: Object::Int(try!(bytes_to_i32(&bytes[0..4]))),
             bytes_read: 4,
         })
     }
@@ -125,18 +127,18 @@ impl Parse {
     ///
     /// bytes 0: The length of the encoded long integer (number of chars)
     /// bytes 1 - ?: A string representing the long (ex "1234567890")
-    pub fn long(data: &[u8]) -> Result<Parse, WeechatError> {
-        if data.len() < 2 {
+    pub fn long(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 2 {
             return Err(ParseError("Not enough bytes to parse long".to_string()));
         }
-        let long_size = data[0] as i8;
+        let long_size = bytes[0] as i8;
         let start = 1;
         let end = start + long_size as usize;
-        if data.len() < end {
+        if bytes.len() < end {
             return Err(ParseError("Long larger then available bytes".to_string()));
         }
 
-        let long_str = try!(from_utf8(&data[start..end]));
+        let long_str = try!(from_utf8(&bytes[start..end]));
         let long: i64 = match long_str.parse() {
             Err(_) => return Err(ParseError("String to long conversion failed".to_string())),
             Ok(l)  => l,
@@ -155,20 +157,20 @@ impl Parse {
     ///
     /// Note: A null poniter is valid. It will have size 1, and the pointer
     ///       object of 0
-    pub fn pointer(data: &[u8]) -> Result<Parse, WeechatError> {
-        if data.len() < 2 {
+    pub fn pointer(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 2 {
             return Err(ParseError("Not enough bytes to parse pointer".to_string()));
         }
 
-        let ptr_size = data[0] as i8;
+        let ptr_size = bytes[0] as i8;
         let start = 1;
         let end = start + ptr_size as usize;
-        if data.len() < end {
+        if bytes.len() < end {
             return Err(ParseError("Pointer larger then availiable bytes".to_string()));
         }
 
         // Pull out pointer, check if it's null
-        let ptr = try!(from_utf8(&data[start..end])).to_string();
+        let ptr = try!(from_utf8(&bytes[start..end])).to_string();
         let object = if ptr.len() == 1 && ptr == "0" { None } else { Some(ptr) };
         Ok(Parse {
             object: Object::Ptr(object),
@@ -184,19 +186,19 @@ impl Parse {
     ///
     /// Note: An empty string is valid, in this cass length will be 0. A NULL
     ///       string is also valid, it has length of -1.
-    pub fn string(data: &[u8]) -> Result<Parse, WeechatError> {
+    pub fn string(bytes: &[u8]) -> Result<Parse, WeechatError> {
         // Sanity checks
-        if data.len() < 4 {
+        if bytes.len() < 4 {
             return Err(ParseError("Not enough bytes to parse string".to_string()));
         }
 
         // Get the start and end limits for this string
         let mut start = 0;
         let mut end = 4;
-        let str_size = try!(bytes_to_i32(&data[start..end]));
+        let str_size = try!(bytes_to_i32(&bytes[start..end]));
         start = end;
         end += str_size as usize;
-        if data.len() < end {
+        if bytes.len() < end {
             return Err(ParseError("String larger then availiable bytes".to_string()));
         }
 
@@ -204,7 +206,7 @@ impl Parse {
         let string_object = match str_size as i32 {
             -1 => None,                  // Null string
             0  => Some("".to_string()),  // Empty string
-            _  => Some(try!(from_utf8(&data[start..end])).to_string()),
+            _  => Some(try!(from_utf8(&bytes[start..end])).to_string()),
         };
         Ok(Parse{
             object: Object::Str(string_object),
@@ -219,18 +221,18 @@ impl Parse {
     ///
     /// bytes 0: The length of the encoded time string (number of chars)
     /// bytes 1 - ?: A string representing the timestamp (ex "1321993456")
-    pub fn time(data: &[u8]) -> Result<Parse, WeechatError> {
-        if data.len() < 2 {
+    pub fn time(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 2 {
             return Err(ParseError("Not enough bytes parse time".to_string()));
         }
-        let time_size = data[0] as i8;
+        let time_size = bytes[0] as i8;
         let start = 1;
         let end = start + time_size as usize;
-        if data.len() < end {
-            return Err(ParseError("Not enough bytes to extract time".to_string()));
+        if bytes.len() < end {
+            return Err(ParseError("Not enough bytes to parse time".to_string()));
         }
 
-        let time_str = try!(from_utf8(&data[start..end]));
+        let time_str = try!(from_utf8(&bytes[start..end]));
         let timestamp: i32 = match time_str.parse() {
             Err(_) => return Err(ParseError("String to i32 conversion failed".to_string())),
             Ok(ts) => ts,
