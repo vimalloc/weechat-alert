@@ -6,6 +6,8 @@ use std::io;
 
 use ears::{Sound, AudioController};
 
+use openssl::ssl::{Ssl, SslMethod, SslContext, SslStream, SSL_VERIFY_NONE, SSL_VERIFY_PEER};
+
 use errors::WeechatError;
 use hdata::HData;
 use message;
@@ -18,6 +20,11 @@ pub struct Relay {
     host: String,
     port: i32,
     password: String,
+}
+
+enum StreamType {
+    Tcp(TcpStream),
+    Ssl(SslStream<TcpStream>),
 }
 
 impl Relay {
@@ -38,7 +45,7 @@ impl Relay {
         }
     }
 
-    fn send_cmd(&self, mut stream: &TcpStream, mut cmd_str: String) -> Result<(), WeechatError> {
+    fn send_cmd(&self, stream: &mut SslStream<TcpStream>, mut cmd_str: String) -> Result<(), WeechatError> {
         // Relay must end in \n per spec
         if !cmd_str.ends_with("\n") {
             cmd_str.push('\n');
@@ -47,7 +54,7 @@ impl Relay {
         Ok(())
     }
 
-    fn recv_msg(&self, mut stream: &TcpStream) -> Result<message::Message, WeechatError> {
+    fn recv_msg(&self, stream: &mut SslStream<TcpStream>) -> Result<message::Message, WeechatError> {
         // header is first 5 bytes. The first 4 are the length, and the last
         // one is if compression is enabled or not
         let mut buffer = [0; HEADER_LENGTH];
@@ -60,7 +67,7 @@ impl Relay {
         message::Message::new(data.as_slice())
     }
 
-    fn init_relay(&self, stream: &TcpStream) -> Result<(), WeechatError> {
+    fn init_relay(&self, stream: &mut SslStream<TcpStream>) -> Result<(), WeechatError> {
         // If initing the relay failed (due to a bad password) the protocol
         // will not actually send us a message saying that, it will just
         // silently disconnect the socket. To check this, we will do a ping
@@ -86,11 +93,11 @@ impl Relay {
 
     /// Tell weechat we are done, and close our socket. TcpStream can no
     /// longer be used after a call to close_relay. Any errors here are ignored
-    fn close_relay(&self, mut stream: &TcpStream) {
+    fn close_relay(&self, stream: &mut SslStream<TcpStream>) {
         let cmd_str = "quit".to_string();
         let _ = self.send_cmd(stream, cmd_str);
         let _ = stream.flush();
-        let _ = stream.shutdown(Shutdown::Both);
+        let _ = stream.get_mut().shutdown(Shutdown::Both);
     }
 
     fn buffer_line_added(&self, hdata: &HData) {
@@ -128,7 +135,7 @@ impl Relay {
         }
     }
 
-    fn run_loop(&self, stream: &TcpStream) -> Result<(), WeechatError> {
+    fn run_loop(&self, stream: &mut SslStream<TcpStream>) -> Result<(), WeechatError> {
         try!(self.init_relay(stream));
 
         // We only need to sync buffers to get highlights. We don't need
@@ -146,9 +153,15 @@ impl Relay {
     }
 
     pub fn run(&self) -> Result<(), WeechatError> {
-        let stream = &try!(self.connect_relay());
-        let result = self.run_loop(stream);
-        self.close_relay(stream);
+        let mut ctx = SslContext::new(SslMethod::Sslv23).unwrap();
+        ctx.set_verify(SSL_VERIFY_NONE, None);
+        let ssl = Ssl::new(&ctx).unwrap();
+
+        let stream = try!(self.connect_relay());
+        let mut ssl_stream = SslStream::connect(ssl, stream).unwrap();
+
+        let result = self.run_loop(&mut ssl_stream);
+        self.close_relay(&mut ssl_stream);
         result
     }
 }

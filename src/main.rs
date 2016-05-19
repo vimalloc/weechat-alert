@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::exit;
 
 extern crate ears;
+extern crate openssl;
 extern crate toml;
 
 mod message;

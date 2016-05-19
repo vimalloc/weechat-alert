@@ -6,3 +6,4 @@ authors = ["Landon GB <landogbland@gmail.com>"]
 [dependencies]
 ears = "0.3.4"
 toml = "*"
+openssl = "0.7.12"
