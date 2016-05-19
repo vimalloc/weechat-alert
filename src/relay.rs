@@ -3,10 +3,12 @@ use std::net::Shutdown;
 use std::net::TcpStream;
 use std::thread;
 use std::io;
+use std::path::Path;
 
 use ears::{Sound, AudioController};
 
 use openssl::ssl::{Ssl, SslMethod, SslContext, SslStream, SSL_VERIFY_NONE, SSL_VERIFY_PEER};
+use openssl::x509::X509FileType;
 
 use errors::WeechatError;
 use hdata::HData;
@@ -154,9 +156,11 @@ impl Relay {
 
     pub fn run(&self) -> Result<(), WeechatError> {
         let mut ctx = SslContext::new(SslMethod::Sslv23).unwrap();
-        ctx.set_verify(SSL_VERIFY_NONE, None);
-        let ssl = Ssl::new(&ctx).unwrap();
+        ctx.set_verify(SSL_VERIFY_PEER, None);
+        let chain_certs = Path::new("/etc/ssl/certs/ca-certificates.crt");
+        ctx.set_CA_file(chain_certs);
 
+        let ssl = Ssl::new(&ctx).unwrap();
         let stream = try!(self.connect_relay());
         let mut ssl_stream = SslStream::connect(ssl, stream).unwrap();
 
