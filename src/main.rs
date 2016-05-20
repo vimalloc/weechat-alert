@@ -16,13 +16,16 @@ mod parse;
 mod relay;
 mod strdata;
 
-use relay::{Relay, RelaySsl};
+use relay::{Relay, SslConfig};
 
 
 struct Config {
     host: String,
     port: i32,
     password: String,
+    ssl: bool,
+    ssl_verify: bool,
+    ca_certs_path: Option<String>
 }
 
 fn parse_config() -> Result<Config, String> {
@@ -57,10 +60,27 @@ fn parse_config() -> Result<Config, String> {
     let port = try!(config.lookup("port").ok_or("'port' not found in the config file"));
     let port = try!(port.as_integer().map(|s| s as i32).ok_or("'port' is not an integer"));
 
+    let default_ssl = toml::Value::Boolean(false);
+    let ssl = config.lookup("ssl").unwrap_or(&default_ssl);
+    let ssl = try!(ssl.as_bool().ok_or("'ssl' is not true or false"));
+
+    let default_ssl_verify = toml::Value::Boolean(false);
+    let ssl_verify = config.lookup("ssl_verify").unwrap_or(&default_ssl_verify);
+    let ssl_verify = try!(ssl_verify.as_bool().ok_or("'ssl_verify' is not a true or false"));
+
+    let ca_certs = match config.lookup("ca_certs_path") {
+        Some(ca) => Some(try!(ca.as_str().map(|s| s.to_string())
+                         .ok_or("'ca_certs_path' is not a valid string"))),
+        None     => None
+    };
+
     Ok(Config {
         host: host,
         port: port,
         password: pw,
+        ssl: ssl,
+        ssl_verify: ssl_verify,
+        ca_certs_path: ca_certs,
     })
 }
 
@@ -74,8 +94,14 @@ fn main() {
         }
     };
 
+    // Handle ssl if its configured
+    let ssl = if config.ssl == true {
+        SslConfig::new(config.ssl_verify, config.ca_certs_path)
+    } else {
+        None
+    };
+
     // Run our program
-    let ssl = RelaySsl::new(true, None);
     let relay =  Relay::new(config.host, config.port, config.password, ssl);
     match relay.run() {
         Err(e) => println!("Error: {}", e),

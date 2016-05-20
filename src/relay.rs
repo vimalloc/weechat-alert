@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use ears::{Sound, AudioController};
 
-use openssl::ssl::{Ssl, SslMethod, SslContext, SslStream, SSL_VERIFY_NONE,
-                   SSL_VERIFY_PEER, MaybeSslStream};
+use openssl::ssl::{Ssl, SslMethod, SslContext, SslStream, MaybeSslStream,
+                   SslVerifyMode, SSL_VERIFY_NONE, SSL_VERIFY_PEER};
 
 use errors::WeechatError;
 use hdata::HData;
@@ -22,41 +22,39 @@ pub struct Relay {
     host: String,
     port: i32,
     password: String,
-    ssl: Option<RelaySsl>,
+    ssl: Option<SslConfig>,
 }
 
 /// Data for enabling SSL on the weechat relay
-pub struct RelaySsl {
+pub struct SslConfig {
     /// Flag to verify the ssl cert or not
-    ssl_verify: bool,
+    verify: SslVerifyMode,
     /// Optional path to a file containing ca certificates. This is may be needed
     /// if you are verifying the ssl cert. On linux, this is normally at
     /// /etc/ssl/certs/ca-certificates.crt.
     ca_cert_path: Option<PathBuf>,
 }
 
-impl RelaySsl {
-    pub fn new(verify: bool, ca_cert_path: Option<&str>) -> Option<RelaySsl> {
+impl SslConfig {
+    pub fn new(verify: bool, ca_cert_path: Option<String>) -> Option<SslConfig> {
         let path = match ca_cert_path {
             Some(s) => Some(PathBuf::from(s)),
             None    => None,
         };
+        let verify_mode = if verify == true { SSL_VERIFY_PEER } else { SSL_VERIFY_NONE };
 
-        // TODO change to let if
-        if verify == true {
-        } else {
-        }
-
-        Some(RelaySsl {
-            ssl_verify: verify,
+        Some(SslConfig {
+            verify: verify_mode,
             ca_cert_path: path,
         })
     }
 }
 
+/// Type alias
+type Stream = MaybeSslStream<TcpStream>;
 
 impl Relay {
-    pub fn new(host: String, port: i32, password: String, relay_ssl: Option<RelaySsl>) -> Relay {
+    pub fn new(host: String, port: i32, password: String, relay_ssl: Option<SslConfig>) -> Relay {
          Relay {
             host: host,
             port: port,
@@ -65,27 +63,29 @@ impl Relay {
         }
     }
 
-    fn connect_relay(&self) -> Result<MaybeSslStream, WeechatError> {
+    fn connect_relay(&self) -> Result<Stream, WeechatError> {
         // The initial tpc connection to the server
         let addr = format!("{}:{}", self.host, self.port);
         let tcp_stream = try!(TcpStream::connect(&*addr));
 
+        // Turn on ssl if configured
         match self.ssl {
-            Some(ssl) => {
+            Some(ref ssl) => {
                 let mut ctx = try!(SslContext::new(SslMethod::Sslv23));
                 ctx.set_verify(ssl.verify, None);
                 match ssl.ca_cert_path {
-                    Some(path) => try!(ctx.set_CA_file(path)),
-                    None       => ..,
+                    Some(ref path) => try!(ctx.set_CA_file(path)),
+                    None       => (),
                 }
                 let ssl = try!(Ssl::new(&ctx));
-                Ok(MaybeSslStream::Ssl(try!(SslStream::connect(ssl, tcp_stream))))
+                let ssl_stream = try!(SslStream::connect(ssl, tcp_stream));
+                Ok(MaybeSslStream::Ssl(ssl_stream))
             },
             None      => Ok(MaybeSslStream::Normal(tcp_stream))
         }
     }
 
-    fn send_cmd(&self, stream: &mut SslStream<TcpStream>, mut cmd_str: String) -> Result<(), WeechatError> {
+    fn send_cmd(&self, stream: &mut Stream, mut cmd_str: String) -> Result<(), WeechatError> {
         // Relay must end in \n per spec
         if !cmd_str.ends_with("\n") {
             cmd_str.push('\n');
@@ -94,7 +94,7 @@ impl Relay {
         Ok(())
     }
 
-    fn recv_msg(&self, stream: &mut SslStream<TcpStream>) -> Result<message::Message, WeechatError> {
+    fn recv_msg(&self, stream: &mut Stream) -> Result<message::Message, WeechatError> {
         // header is first 5 bytes. The first 4 are the length, and the last
         // one is if compression is enabled or not
         let mut buffer = [0; HEADER_LENGTH];
@@ -107,7 +107,7 @@ impl Relay {
         message::Message::new(data.as_slice())
     }
 
-    fn init_relay(&self, stream: &mut SslStream<TcpStream>) -> Result<(), WeechatError> {
+    fn init_relay(&self, stream: &mut Stream) -> Result<(), WeechatError> {
         // If initing the relay failed (due to a bad password) the protocol
         // will not actually send us a message saying that, it will just
         // silently disconnect the socket. To check this, we will do a ping
@@ -131,9 +131,9 @@ impl Relay {
         }
     }
 
-    /// Tell weechat we are done, and close our socket. TcpStream can no
+    /// Tell weechat we are done, and close our socket. The stream can no
     /// longer be used after a call to close_relay. Any errors here are ignored
-    fn close_relay(&self, stream: &mut SslStream<TcpStream>) {
+    fn close_relay(&self, stream: &mut Stream) {
         let cmd_str = "quit".to_string();
         let _ = self.send_cmd(stream, cmd_str);
         let _ = stream.flush();
@@ -175,7 +175,7 @@ impl Relay {
         }
     }
 
-    fn run_loop(&self, stream: &mut SslStream<TcpStream>) -> Result<(), WeechatError> {
+    fn run_loop(&self, stream: &mut Stream) -> Result<(), WeechatError> {
         try!(self.init_relay(stream));
 
         // We only need to sync buffers to get highlights. We don't need

@@ -1,3 +1,22 @@
+# Server ip or hostname to connect to
 server = "<weechat_server>"
+
+# The port on the server to connect to
 port = <relay_port>
+
+# The password for the weechat relay instance
 password = "<password>"
+
+# Optional: Enable SSL on this connection. Defaults to false
+#ssl = false
+
+# Optional: Verify the SSL cert on this connection. Defaults to false.
+# This is ignored if the ssl option is flase
+#ssl_verify = false
+
+# Optional: Path to file containint ca certificates. This may be required in
+# order to verify an ssl cert. On linux, this is normally found at:
+# /etc/ssl/certs/ca-certificates.crt
+#
+# This has no affect if ssl is false or ssl_verify is false
+#ca_certs_path = "/etc/ssl/certs/ca-certificates.crt"
