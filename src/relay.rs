@@ -3,12 +3,12 @@ use std::net::Shutdown;
 use std::net::TcpStream;
 use std::thread;
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 
 use ears::{Sound, AudioController};
 
-use openssl::ssl::{Ssl, SslMethod, SslContext, SslStream, SSL_VERIFY_NONE, SSL_VERIFY_PEER};
-use openssl::x509::X509FileType;
+use openssl::ssl::{Ssl, SslMethod, SslContext, SslStream, SSL_VERIFY_NONE,
+                   SSL_VERIFY_PEER, MaybeSslStream};
 
 use errors::WeechatError;
 use hdata::HData;
@@ -22,28 +22,66 @@ pub struct Relay {
     host: String,
     port: i32,
     password: String,
+    ssl: Option<RelaySsl>,
 }
 
-enum StreamType {
-    Tcp(TcpStream),
-    Ssl(SslStream<TcpStream>),
+/// Data for enabling SSL on the weechat relay
+pub struct RelaySsl {
+    /// Flag to verify the ssl cert or not
+    ssl_verify: bool,
+    /// Optional path to a file containing ca certificates. This is may be needed
+    /// if you are verifying the ssl cert. On linux, this is normally at
+    /// /etc/ssl/certs/ca-certificates.crt.
+    ca_cert_path: Option<PathBuf>,
 }
+
+impl RelaySsl {
+    pub fn new(verify: bool, ca_cert_path: Option<&str>) -> Option<RelaySsl> {
+        let path = match ca_cert_path {
+            Some(s) => Some(PathBuf::from(s)),
+            None    => None,
+        };
+
+        // TODO change to let if
+        if verify == true {
+        } else {
+        }
+
+        Some(RelaySsl {
+            ssl_verify: verify,
+            ca_cert_path: path,
+        })
+    }
+}
+
 
 impl Relay {
-    pub fn new(host: String, port: i32, password: String) -> Relay {
+    pub fn new(host: String, port: i32, password: String, relay_ssl: Option<RelaySsl>) -> Relay {
          Relay {
             host: host,
             port: port,
             password: password,
+            ssl: relay_ssl,
         }
     }
 
-    fn connect_relay(&self) -> Result<TcpStream, WeechatError> {
+    fn connect_relay(&self) -> Result<MaybeSslStream, WeechatError> {
         // The initial tpc connection to the server
         let addr = format!("{}:{}", self.host, self.port);
-        match TcpStream::connect(&*addr) {
-            Ok(stream) => Ok(stream),
-            Err(e)     => Err(WeechatError::Io(e))
+        let tcp_stream = try!(TcpStream::connect(&*addr));
+
+        match self.ssl {
+            Some(ssl) => {
+                let mut ctx = try!(SslContext::new(SslMethod::Sslv23));
+                ctx.set_verify(ssl.verify, None);
+                match ssl.ca_cert_path {
+                    Some(path) => try!(ctx.set_CA_file(path)),
+                    None       => ..,
+                }
+                let ssl = try!(Ssl::new(&ctx));
+                Ok(MaybeSslStream::Ssl(try!(SslStream::connect(ssl, tcp_stream))))
+            },
+            None      => Ok(MaybeSslStream::Normal(tcp_stream))
         }
     }
 
@@ -155,17 +193,9 @@ impl Relay {
     }
 
     pub fn run(&self) -> Result<(), WeechatError> {
-        let mut ctx = SslContext::new(SslMethod::Sslv23).unwrap();
-        ctx.set_verify(SSL_VERIFY_PEER, None);
-        let chain_certs = Path::new("/etc/ssl/certs/ca-certificates.crt");
-        ctx.set_CA_file(chain_certs);
-
-        let ssl = Ssl::new(&ctx).unwrap();
-        let stream = try!(self.connect_relay());
-        let mut ssl_stream = SslStream::connect(ssl, stream).unwrap();
-
-        let result = self.run_loop(&mut ssl_stream);
-        self.close_relay(&mut ssl_stream);
+        let mut stream = try!(self.connect_relay());
+        let result = self.run_loop(&mut stream);
+        self.close_relay(&mut stream);
         result
     }
 }

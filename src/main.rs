@@ -16,7 +16,7 @@ mod parse;
 mod relay;
 mod strdata;
 
-use relay::Relay;
+use relay::{Relay, RelaySsl};
 
 
 struct Config {
@@ -75,7 +75,8 @@ fn main() {
     };
 
     // Run our program
-    let relay =  Relay::new(config.host, config.port, config.password);
+    let ssl = RelaySsl::new(true, None);
+    let relay =  Relay::new(config.host, config.port, config.password, ssl);
     match relay.run() {
         Err(e) => println!("Error: {}", e),
         Ok(_) => ()
