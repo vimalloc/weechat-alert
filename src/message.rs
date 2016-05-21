@@ -127,18 +127,15 @@ pub enum Object {
     Tim(i32),
 }
 
-// TODO will this actually work? Looking at the example here: https://doc.rust-lang.org/std/hash/
-// they had to define what the hash function was, but here I'm just calling hash and it's
-// working. I think it is because those values already implement a hash function so I'm
-// alright there, but do double check this and make sure it works. Also add support
-// for nested hash maps (maybe convert to string or something? Dunno, but figure out
+// I need to implement this to get nested hash tables to work. Derive hash
+// on Object isn't working for it, so I'm manually doing it here
 impl Hash for Object {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match *self {
             Object::Arr(ref x) => x.hash(state),
             Object::Buf(ref x) => x.hash(state),
             Object::Chr(ref x) => x.hash(state),
-            Object::Htb(ref x) => panic!("Nested hashmaps not supported yet"),
+            Object::Htb(ref x) => format!("{:?}", x).hash(state), // Not ideal
             Object::Int(ref x) => x.hash(state),
             Object::Lon(ref x) => x.hash(state),
             Object::Ptr(ref x) => x.hash(state),
@@ -240,12 +237,12 @@ impl fmt::Display for Object {
             Object::Str(Some(ref s)) => write!(f, "\"{}\"", s),
             Object::Ptr(Some(ref p)) => write!(f, "0x{}", p),
             Object::Buf(Some(ref b)) => {
-                                              try!(write!(f, "[ "));
-                                              for byte in b {
-                                                  try!(write!(f, "{}, ", byte));
-                                              }
-                                              write!(f, "]")
-                                          }
+                try!(write!(f, "[ "));
+                for byte in b {
+                    try!(write!(f, "{}, ", byte));
+                }
+                write!(f, "]")
+            }
             Object::Buf(None)  => write!(f, "null"),
             Object::Str(None)  => write!(f, "null"),
             Object::Ptr(None)  => write!(f, "0x0"),
@@ -253,15 +250,24 @@ impl fmt::Display for Object {
             Object::Int(ref i) => write!(f, "{}", i),
             Object::Lon(ref l) => write!(f, "{}", l),
             Object::Tim(ref t) => write!(f, "{}", t),
-            Object::Htb(ref h) => write!(f, "TODO"), // TODO Pretty print me
+            Object::Htb(ref h) =>  {
+                try!(write!(f, "{{ "));
+                for (key, value) in h {
+                    try!(key.fmt(f));
+                    try!(write!(f, ": "));
+                    try!(value.fmt(f));
+                    try!(write!(f, ", "));
+                }
+                write!(f, "}}")
+            }
             Object::Arr(ref d) => {
-                                        try!(write!(f, "[ "));
-                                        for i in d {
-                                            try!(i.fmt(f));
-                                            try!(write!(f, ", "));
-                                        }
-                                        write!(f, "]")
-                                    },
+                try!(write!(f, "[ "));
+                for i in d {
+                    try!(i.fmt(f));
+                    try!(write!(f, ", "));
+                }
+                write!(f, "]")
+            },
         }
     }
 }
