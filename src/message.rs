@@ -1,5 +1,7 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::str::from_utf8;
+use std::collections::HashMap;
 
 use hdata::HData;
 use errors::WeechatError;
@@ -112,16 +114,38 @@ impl Message {
 
 /// All possible types of data that can be returned from a weechat message
 /// See: https://weechat.org/files/doc/devel/weechat_relay_protocol.en.html#objects
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Object {
     Arr(Vec<Object>),
     Buf(Option<Vec<u8>>),
     Chr(char),
+    Htb(HashMap<Object, Object>),
     Int(i32),
     Lon(i64),
     Ptr(Option<String>),
     Str(Option<String>),
     Tim(i32),
+}
+
+// TODO will this actually work? Looking at the example here: https://doc.rust-lang.org/std/hash/
+// they had to define what the hash function was, but here I'm just calling hash and it's
+// working. I think it is because those values already implement a hash function so I'm
+// alright there, but do double check this and make sure it works. Also add support
+// for nested hash maps (maybe convert to string or something? Dunno, but figure out
+impl Hash for Object {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match *self {
+            Object::Arr(ref x) => x.hash(state),
+            Object::Buf(ref x) => x.hash(state),
+            Object::Chr(ref x) => x.hash(state),
+            Object::Htb(ref x) => panic!("Nested hashmaps not supported yet"),
+            Object::Int(ref x) => x.hash(state),
+            Object::Lon(ref x) => x.hash(state),
+            Object::Ptr(ref x) => x.hash(state),
+            Object::Str(ref x) => x.hash(state),
+            Object::Tim(ref x) => x.hash(state),
+        };
+    }
 }
 
 impl Object {
@@ -229,6 +253,7 @@ impl fmt::Display for Object {
             Object::Int(ref i) => write!(f, "{}", i),
             Object::Lon(ref l) => write!(f, "{}", l),
             Object::Tim(ref t) => write!(f, "{}", t),
+            Object::Htb(ref h) => write!(f, "TODO"), // TODO Pretty print me
             Object::Arr(ref d) => {
                                         try!(write!(f, "[ "));
                                         for i in d {

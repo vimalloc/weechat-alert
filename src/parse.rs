@@ -1,5 +1,6 @@
 use std::str::from_utf8;
 use std::mem::transmute;
+use std::collections::HashMap;
 
 use message::Object;
 use errors::WeechatError;
@@ -14,6 +15,21 @@ pub struct Parse {
 }
 
 impl Parse {
+    fn parse_type(data_type: &str, bytes: &[u8]) -> Result<Parse, WeechatError> {
+         Ok(match data_type {
+            "chr" => try!(Parse::character(bytes)),
+            "int" => try!(Parse::integer(bytes)),
+            "lon" => try!(Parse::long(bytes)),
+            "str" => try!(Parse::string(bytes)),
+            "buf" => try!(Parse::buffer(bytes)),
+            "ptr" => try!(Parse::pointer(bytes)),
+            "tim" => try!(Parse::time(bytes)),
+            "arr" => try!(Parse::array(bytes)),
+            "htb" => try!(Parse::hashtable(bytes)),
+            _     => return Err(ParseError("Bad type for array".to_string())),
+        })
+    }
+
     /// Given a byte array which contains an encoded array (of some Object
     /// type), pull out everything from the array and return it as a vector of
     /// Objects. The protocl for this is:
@@ -37,17 +53,7 @@ impl Parse {
 
         let mut cur_pos = 7;  // Start position for bytes array elements
         for _ in 0..num_elements {
-            let parsed = match arr_type {
-                "chr" => try!(Parse::character(&bytes[cur_pos..])),
-                "int" => try!(Parse::integer(&bytes[cur_pos..])),
-                "lon" => try!(Parse::long(&bytes[cur_pos..])),
-                "str" => try!(Parse::string(&bytes[cur_pos..])),
-                "buf" => try!(Parse::buffer(&bytes[cur_pos..])),
-                "ptr" => try!(Parse::pointer(&bytes[cur_pos..])),
-                "tim" => try!(Parse::time(&bytes[cur_pos..])),
-                "arr" => try!(Parse::array(&bytes[cur_pos..])),
-                _     => return Err(ParseError("Bad type for array".to_string())),
-            };
+            let parsed = try!(Parse::parse_type(arr_type, &bytes[cur_pos..]));
             cur_pos += parsed.bytes_read;
             array.push(parsed.object);
         }
@@ -106,6 +112,39 @@ impl Parse {
         Ok(Parse {
             object: Object::Chr(bytes[0] as char),
             bytes_read: 1,
+        })
+    }
+
+    /// Given a byte array which contains an encoded hashtable, pull it out.
+    ///
+    /// The protocol for hash tables are:
+    /// Str: Type of the keys
+    /// Str: Type of the values
+    /// Int: Number of items
+    /// Items
+    pub fn hashtable(bytes: &[u8]) -> Result<Parse, WeechatError> {
+        if bytes.len() < 10 {
+            return Err(ParseError("Not enough bytes to have a hashtable".to_string()));
+        }
+        let key_type = try!(from_utf8(&bytes[0..3]));
+        let value_type = try!(from_utf8(&bytes[3..6]));
+        let num_entries = try!(bytes_to_i32(&bytes[6..10]));
+        let mut map: HashMap<Object, Object> = HashMap::new();
+
+        let mut cur_pos = 10;  // Start position for hashmap elements
+        for _ in 0..num_entries {
+            let parsed_key = try!(Parse::parse_type(key_type, &bytes[cur_pos..]));
+            cur_pos += parsed_key.bytes_read;
+
+            let parsed_value = try!(Parse::parse_type(value_type, &bytes[cur_pos..]));
+            cur_pos += parsed_value.bytes_read;
+
+            map.insert(parsed_key.object, parsed_value.object);
+        }
+
+        Ok(Parse {
+            object: Object::Htb(map),
+            bytes_read: cur_pos,
         })
     }
 
