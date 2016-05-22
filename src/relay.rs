@@ -27,7 +27,7 @@ pub struct Relay {
 
 /// Data for enabling SSL on the weechat relay
 pub struct SslConfig {
-    /// Flag to verify the ssl cert or not
+    /// SSL verify mode
     verify: SslVerifyMode,
     /// Optional path to a file containing ca certificates. This is may be needed
     /// if you are verifying the ssl cert. On linux, this is normally at
@@ -36,17 +36,17 @@ pub struct SslConfig {
 }
 
 impl SslConfig {
-    pub fn new(verify: bool, ca_cert_path: Option<String>) -> Option<SslConfig> {
+    pub fn new(verify: bool, ca_cert_path: Option<String>) -> SslConfig {
         let path = match ca_cert_path {
             Some(s) => Some(PathBuf::from(s)),
             None    => None,
         };
         let verify_mode = if verify == true { SSL_VERIFY_PEER } else { SSL_VERIFY_NONE };
 
-        Some(SslConfig {
+        SslConfig {
             verify: verify_mode,
             ca_cert_path: path,
-        })
+        }
     }
 }
 

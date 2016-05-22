@@ -26,7 +26,7 @@ impl Parse {
             "tim" => try!(Parse::time(bytes)),
             "arr" => try!(Parse::array(bytes)),
             "htb" => try!(Parse::hashtable(bytes)),
-            _     => return Err(ParseError("Bad type for array".to_string())),
+            _     => return Err(ParseError("Unknown data type".to_string())),
         })
     }
 

@@ -96,7 +96,7 @@ fn main() {
 
     // Handle ssl if its configured
     let ssl = if config.ssl == true {
-        SslConfig::new(config.ssl_verify, config.ca_certs_path)
+        Some(SslConfig::new(config.ssl_verify, config.ca_certs_path))
     } else {
         None
     };
