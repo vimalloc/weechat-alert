@@ -62,17 +62,7 @@ impl HData {
                 let key_parse: Vec<&str> = key.split(':').collect();
                 let key_name = key_parse[0];
                 let key_type = key_parse[1];
-                let parsed = match key_type {
-                    "arr" => try!(Parse::array(&bytes[cur_pos..])),
-                    "buf" => try!(Parse::buffer(&bytes[cur_pos..])),
-                    "chr" => try!(Parse::character(&bytes[cur_pos..])),
-                    "int" => try!(Parse::integer(&bytes[cur_pos..])),
-                    "lon" => try!(Parse::long(&bytes[cur_pos..])),
-                    "ptr" => try!(Parse::pointer(&bytes[cur_pos..])),
-                    "str" => try!(Parse::string(&bytes[cur_pos..])),
-                    "tim" => try!(Parse::time(&bytes[cur_pos..])),
-                    _     => return Err(ParseError("Bad type for key".to_string())),
-                };
+                let parsed = try!(Parse::parse_type(key_type, &bytes[cur_pos..]));
                 key_value_map.insert(String::from(key_name), parsed.object);
                 cur_pos += parsed.bytes_read;
             }

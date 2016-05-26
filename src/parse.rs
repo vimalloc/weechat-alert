@@ -15,7 +15,7 @@ pub struct Parse {
 }
 
 impl Parse {
-    fn parse_type(data_type: &str, bytes: &[u8]) -> Result<Parse, WeechatError> {
+    pub fn parse_type(data_type: &str, bytes: &[u8]) -> Result<Parse, WeechatError> {
          Ok(match data_type {
             "chr" => try!(Parse::character(bytes)),
             "int" => try!(Parse::integer(bytes)),
@@ -235,6 +235,16 @@ impl Parse {
         let mut start = 0;
         let mut end = 4;
         let str_size = try!(bytes_to_i32(&bytes[start..end]));
+
+        // Explicit Check for -1 (null string). If we actually added it to the
+        // end like we did bellow, it would make our bytes_read count off
+        if str_size == -1 {
+            return Ok(Parse{
+                object: Object::Str(None),
+                bytes_read: 4
+            });
+        }
+
         start = end;
         end += str_size as usize;
         if bytes.len() < end {
@@ -243,7 +253,6 @@ impl Parse {
 
         // Pull out and return the string
         let string_object = match str_size as i32 {
-            -1 => None,                  // Null string
             0  => Some("".to_string()),  // Empty string
             _  => Some(try!(from_utf8(&bytes[start..end])).to_string()),
         };
