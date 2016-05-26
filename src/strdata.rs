@@ -16,8 +16,10 @@ impl StrData {
     pub fn new(bytes: &[u8]) -> Result<StrData, WeechatError> {
         let parsed = try!(Parse::string(bytes));
         let s = try!(parsed.object.as_str()).map(|s| s.to_string());
-        Ok(StrData{
-            data: s
-        })
+        if bytes.len() != parsed.bytes_read {
+            Err(WeechatError::ParseError("Not all bytes in message consumed".to_string()))
+        } else {
+            Ok(StrData{ data: s })
+        }
     }
 }

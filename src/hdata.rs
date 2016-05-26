@@ -71,8 +71,12 @@ impl HData {
             data_list.push(key_value_map);
         }
 
-        Ok(HData {
-            data: data_list,
-        })
+        // Sanity check, make sure all the bytes of this message are used
+        // and accounted for
+        if bytes.len() != cur_pos {
+            Err(ParseError("Not all bytes in message consumed".to_string()))
+        } else {
+            Ok(HData{ data: data_list })
+        }
     }
 }
