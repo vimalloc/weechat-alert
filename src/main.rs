@@ -101,6 +101,10 @@ fn main() {
         None
     };
 
+    // Call ears_init() function tlo insure that the ears context is not
+    // destroyed by a task
+    ears::init();
+
     // Run our program
     let relay =  Relay::new(config.host, config.port, config.password, ssl);
     match relay.run() {
