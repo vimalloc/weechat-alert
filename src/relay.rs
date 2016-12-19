@@ -168,7 +168,7 @@ impl Relay {
         // message.
         if play_sound {
             thread::spawn(move || {
-                let mut snd = Sound::new("/home/lgbland/.weechat/noises/test.wav").unwrap();
+                let mut snd = Sound::new("/home/lgbland/weechat_alert.wav").expect("Error loading the sound file");
                 snd.play();
                 while snd.is_playing() {}
             });
